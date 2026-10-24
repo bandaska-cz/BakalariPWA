@@ -1296,6 +1296,26 @@ class SkolniPartakApp {
         this.notifier.triggerAlert(type, true);
       });
     });
+
+    // Force Cache Reload button in Footer
+    const forceReloadBtn = document.getElementById('btn-force-cache-reload');
+    if (forceReloadBtn) {
+      forceReloadBtn.addEventListener('click', async () => {
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            await reg.unregister();
+          }
+        }
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          for (const k of keys) {
+            await caches.delete(k);
+          }
+        }
+        window.location.reload(true);
+      });
+    }
   }
 
   showToast(message, type = 'success') {

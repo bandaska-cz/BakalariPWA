@@ -1949,6 +1949,24 @@ dialog.standard-modal::backdrop {
   background: var(--bg-surface);
 }
 
+.app-version-tag {
+  margin: 0.4rem 0 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.btn-link-mini {
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
 .app-footer a {
   color: var(--primary);
   font-weight: 800;
