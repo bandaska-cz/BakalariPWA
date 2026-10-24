@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Školní parťák – Bakaláři PWA pro ZŠ</title>
+  <meta name="description" content="Chytrá školní PWA aplikace napojená na Bakaláři API v3: rozvrh hodin, kroužky, známky s odhadem vysvědčení, domácí úkoly a připomínky s ručním potvrzením.">
+  <meta name="theme-color" content="#6366f1">
+
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
+  <link rel="apple-touch-icon" href="./icons/icon.svg">
+  <link rel="manifest" href="./manifest.json">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+  <!-- ==================== HEADER ==================== -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-wrap">
+        <img src="./icons/icon.svg" alt="Maskot Školní parťák" width="44" height="44" fetchpriority="high" class="brand-logo">
+        <div>
+          <span class="brand-title">Školní parťák</span>
+          <div class="brand-sub">
+            <span id="header-student-name">Eliška (6.A)</span>
+            <span id="header-mode-badge" class="status-pill demo">Ukázkový režim</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="quick-test-pills" role="group" aria-label="Rychlé vyzkoušení vyskakovacích upozornění">
+          <button type="button" class="btn-chip-alert morning" data-test-alert="morning" title="Vyzkoušet ranní upozornění na rozvrh">
+            <span aria-hidden="true">☀️</span> Ráno
+          </button>
+          <button type="button" class="btn-chip-alert hw" data-test-alert="homework17" title="Vyzkoušet upozornění v 17:00 na úkoly">
+            <span aria-hidden="true">🕔</span> 17:00 Úkoly
+          </button>
+          <button type="button" class="btn-chip-alert evening" data-test-alert="evening" title="Vyzkoušet večerní upozornění na další den">
+            <span aria-hidden="true">🌙</span> Večer
+          </button>
+        </div>
+
+        <button type="button" id="btn-refresh-data" class="btn-icon-round" title="Aktualizovat data z Bakalářů" aria-label="Aktualizovat data z Bakalářů">
+          <span aria-hidden="true">🔄</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <nav class="main-nav" aria-label="Hlavní navigace aplikace">
+      <ul>
+        <li>
+          <button type="button" class="nav-btn active" data-nav-tab="dashboard">
+            <span aria-hidden="true">🏠</span>
+            <span>Přehled</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="nav-btn" data-nav-tab="timetable">
+            <span aria-hidden="true">📅</span>
+            <span>Rozvrh a kroužky</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="nav-btn" data-nav-tab="marks">
+            <span aria-hidden="true">🎓</span>
+            <span>Známky a vysvědčení</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="nav-btn" data-nav-tab="homeworks">
+            <span aria-hidden="true">📝</span>
+            <span>Domácí úkoly</span>
+            <span id="nav-hw-badge" class="nav-badge">0</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="nav-btn" data-nav-tab="settings">
+            <span aria-hidden="true">⚙️</span>
+            <span>Bakaláři &amp; Časy</span>
+          </button>
+        </li>
+      </ul>
+    </nav>
+  </header>
+
+  <!-- ==================== MAIN CONTENT ==================== -->
+  <main class="app-main">
+    <h1 class="sr-only">Školní parťák – přehled rozvrhu, známek, domácích úkolů a upozornění</h1>
+
+    <!-- ==================== VIEW 1: DASHBOARD ==================== -->
+    <section id="view-dashboard" class="app-view-section">
+      <div class="section-heading-row">
+        <div>
+          <h2>Povinné denní kontroly a potvrzení</h2>
+          <p>Každé upozornění vyskočí ve stanovený čas a vyžaduje ruční odškrtnutí a potvrzení.</p>
+        </div>
+      </div>
+
+      <!-- 3 Daily Confirmations Status Grid -->
+      <div id="daily-confirmations-grid" class="confirmations-grid"></div>
+
+      <!-- Dashboard Two-Column Layout -->
+      <div class="dashboard-columns">
+        <!-- Left Column: Current/Next Timetable + Clubs -->
+        <div class="dash-panel">
+          <div class="panel-header">
+            <h2 id="dash-schedule-title">Dnešní rozvrh hodin a kroužky</h2>
+            <button type="button" class="btn-link" data-nav-tab="timetable">Celý týden →</button>
+          </div>
+          <div id="dash-schedule-list" class="dash-schedule-container"></div>
+        </div>
+
+        <!-- Right Column: Homeworks + Report Card Estimate -->
+        <div class="dash-right-stack">
+          <div class="dash-panel">
+            <div class="panel-header">
+              <h2>Domácí úkoly ke splnění</h2>
+              <button type="button" class="btn-link" data-nav-tab="homeworks">Všechny úkoly →</button>
+            </div>
+            <div id="dash-homeworks-list" class="dash-hw-container"></div>
+          </div>
+
+          <div class="dash-panel">
+            <div class="panel-header">
+              <h2>Odhad průměru na vysvědčení</h2>
+              <button type="button" class="btn-link" data-nav-tab="marks">Detail známek →</button>
+            </div>
+            <div id="dash-report-card-summary"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW 2: TIMETABLE & CLUBS ==================== -->
+    <section id="view-timetable" class="app-view-section" hidden>
+      <div class="section-toolbar">
+        <div>
+          <h2>Aktuální rozvrh hodin a odpolední kroužky</h2>
+          <p>Propojeno s Bakaláři (včetně suplování a změn) + možnost přidat vlastní kroužky.</p>
+        </div>
+
+        <div class="toolbar-controls">
+          <div class="segmented-control" role="group" aria-label="Výběr týdne">
+            <button type="button" class="seg-btn active" data-week-offset="0">Tento týden</button>
+            <button type="button" class="seg-btn" data-week-offset="1">Příští týden</button>
+          </div>
+
+          <div class="segmented-control" role="group" aria-label="Zobrazení rozvrhu">
+            <button type="button" class="seg-btn active" data-tt-mode="daily">Po dnech</button>
+            <button type="button" class="seg-btn" data-tt-mode="weekly">Celý týden</button>
+          </div>
+
+          <button type="button" id="btn-add-club-main" class="btn-primary">
+            + Přidat kroužek
+          </button>
+        </div>
+      </div>
+
+      <!-- Day Switcher Tabs (Po - Pá) -->
+      <div id="timetable-day-tabs" class="day-tabs-bar" role="tablist" aria-label="Dny v týdnu"></div>
+
+      <!-- Timetable & Clubs Content -->
+      <div id="timetable-content-area" class="timetable-content-box"></div>
+    </section>
+
+    <!-- ==================== VIEW 3: MARKS & REPORT CARD ESTIMATE ==================== -->
+    <section id="view-marks" class="app-view-section" hidden>
+      <div class="section-toolbar">
+        <div>
+          <h2>Známky z předmětů a odhad na vysvědčení</h2>
+          <p>Vážený průměr podle vah známek v Bakalářích + kalkulačka „Co když dostanu...“</p>
+        </div>
+
+        <div class="toolbar-controls">
+          <label for="marks-threshold-select" class="inline-select-label">
+            Hranice pro lepší známku:
+            <select id="marks-threshold-select" class="form-select-sm">
+              <option value="0.5" selected>Standardní (do 1,50 = 1; do 2,50 = 2)</option>
+              <option value="0.45">Přísnější (do 1,45 = 1; do 2,45 = 2)</option>
+              <option value="0.4">Velmi přísná (do 1,40 = 1; do 2,40 = 2)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <!-- Overall Report Card Summary -->
+      <div id="marks-report-summary"></div>
+
+      <!-- Individual Subject Cards -->
+      <div id="marks-subjects-list" class="subjects-grid"></div>
+    </section>
+
+    <!-- ==================== VIEW 4: HOMEWORKS ==================== -->
+    <section id="view-homeworks" class="app-view-section" hidden>
+      <div class="section-toolbar">
+        <div>
+          <h2>Domácí úkoly</h2>
+          <p>Každý pracovní den v 17:00 aplikace automaticky připomene úkoly na další den.</p>
+        </div>
+
+        <div class="toolbar-controls">
+          <div class="segmented-control" role="group" aria-label="Filtr domácích úkolů">
+            <button type="button" class="seg-btn active" data-hw-filter="active">Nesplněné</button>
+            <button type="button" class="seg-btn" data-hw-filter="tomorrow">Na další den</button>
+            <button type="button" class="seg-btn" data-hw-filter="all">Všechny</button>
+          </div>
+
+          <button type="button" id="btn-open-custom-hw-modal" class="btn-primary">
+            + Přidat vlastní úkol
+          </button>
+        </div>
+      </div>
+
+      <div id="homeworks-list-container" class="homeworks-stack"></div>
+    </section>
+
+    <!-- ==================== VIEW 5: SETTINGS & API LOGIN ==================== -->
+    <section id="view-settings" class="app-view-section" hidden>
+      <div class="settings-grid">
+
+        <!-- Card 1: Notification Schedule & Testing -->
+        <article class="settings-card">
+          <h2>🔔 Nastavení vyskakovacích upozornění</h2>
+          <p class="card-desc">Upozornění vyžadují ruční odškrtnutí a potvrzení. Dokud je dcera nepotvrdí, okno nelze zavřít klávesou Esc ani kliknutím mimo.</p>
+
+          <div class="perm-row">
+            <span id="notif-permission-status" class="perm-badge pending">Kontrola oprávnění...</span>
+            <button type="button" id="btn-request-notif-permission" class="btn-outline-sm">
+              Povolit systémová upozornění
+            </button>
+          </div>
+
+          <form id="notification-settings-form" class="settings-form">
+            <div class="form-group">
+              <label for="setting-student-name">Jméno dcery (v oslovení upozornění):</label>
+              <input type="text" id="setting-student-name" class="form-input" placeholder="např. Eliško" required>
+            </div>
+
+            <div class="form-row-3">
+              <div class="form-group">
+                <label for="setting-morning-time">☀️ Ranní rozvrh:</label>
+                <input type="time" id="setting-morning-time" class="form-input" value="07:00" required>
+              </div>
+              <div class="form-group">
+                <label for="setting-homework-time">🕔 Kontrola úkolů (Po–Pá):</label>
+                <input type="time" id="setting-homework-time" class="form-input" value="17:00" required>
+              </div>
+              <div class="form-group">
+                <label for="setting-evening-time">🌙 Večerní příprava:</label>
+                <input type="time" id="setting-evening-time" class="form-input" value="19:30" required>
+              </div>
+            </div>
+
+            <label class="checkbox-setting-row" for="setting-sound-enabled">
+              <input type="checkbox" id="setting-sound-enabled" checked>
+              <span>Přehrát zvukovou znělku při vyskočení upozornění (a opakovat, dokud nepotvrdí)</span>
+            </label>
+
+            <label class="checkbox-setting-row" for="setting-require-ticks">
+              <input type="checkbox" id="setting-require-ticks" checked>
+              <span>Vyžadovat zaškrtnutí všech bodů v seznamu před odemknutím tlačítka „Potvrzuji“</span>
+            </label>
+
+            <button type="submit" class="btn-primary full-width">Uložit nastavení upozornění</button>
+          </form>
+
+          <div class="test-alerts-box">
+            <h3>Vyzkoušet vyskakovací upozornění hned teď:</h3>
+            <div class="test-buttons-row">
+              <button type="button" class="btn-outline-sm" data-test-alert="morning">☀️ Spustit ranní kontrolu</button>
+              <button type="button" class="btn-outline-sm" data-test-alert="homework17">🕔 Spustit úkoly (17:00)</button>
+              <button type="button" class="btn-outline-sm" data-test-alert="evening">🌙 Spustit večerní kontrolu</button>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 2: Bakaláři API v3 Connection -->
+        <article class="settings-card">
+          <h2>🔌 Připojení na školní systém Bakaláři (API v3)</h2>
+          <p class="card-desc">Aplikace komunikuje podle specifikace <code>bakalari-api-v3</code> (endpointy <code>/api/3/login</code>, <code>/api/3/timetable/actual</code>, <code>/api/3/marks</code>, <code>/api/3/homeworks</code>).</p>
+
+          <div id="baka-connection-status"></div>
+
+          <form id="bakalari-login-form" class="settings-form">
+            <div class="form-group">
+              <label for="input-baka-url">URL adresa školních Bakalářů:</label>
+              <input type="url" id="input-baka-url" class="form-input" placeholder="https://bakalari.zs-vase-skola.cz" required>
+              <small class="form-hint">Adresa, na které se přihlašujete do webových Bakalářů školy.</small>
+            </div>
+
+            <div class="form-row-2">
+              <div class="form-group">
+                <label for="input-baka-user">Přihlašovací jméno:</label>
+                <input type="text" id="input-baka-user" class="form-input" autocomplete="username" placeholder="žákovský nebo rodičovský účet" required>
+              </div>
+              <div class="form-group">
+                <label for="input-baka-pass">Heslo:</label>
+                <input type="password" id="input-baka-pass" class="form-input" autocomplete="current-password" placeholder="••••••••" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="input-baka-proxy">Volitelná CORS Proxy URL (pokud škola blokuje přímé dotazy z prohlížeče):</label>
+              <input type="text" id="input-baka-proxy" class="form-input" placeholder="např. http://localhost:3000 (přiložený proxy-server.js)">
+              <small class="form-hint">Pokud spouštíte aplikaci přes přiložený <code>node proxy-server.js</code>, vyplňte <code>http://localhost:3000</code>.</small>
+            </div>
+
+            <button type="submit" id="btn-submit-baka-login" class="btn-primary full-width">
+              Připojit k Bakalářům API v3
+            </button>
+          </form>
+        </article>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================== FOOTER ==================== -->
+  <footer class="app-footer">
+    <p>Školní parťák – PWA pro základní školu • Postaveno na <a href="https://github.com/bakalari-api/bakalari-api-v3" target="_blank" rel="noopener noreferrer">Bakaláři API v3</a></p>
+  </footer>
+
+  <!-- ==========================================================================
+       MODAL 1: MANDATORY NON-DISMISSIBLE CONFIRMATION DIALOG
+       Cannot be closed with Esc or backdrop click — requires manual confirmation!
+       ========================================================================== -->
+  <dialog id="mandatory-alert-dialog" class="mandatory-modal" aria-labelledby="alert-modal-title">
+    <div class="mandatory-modal-inner">
+      <div class="mandatory-modal-top">
+        <span id="alert-modal-badge" class="alert-badge badge-morning">☀️ Ranní kontrola</span>
+        <span class="mandatory-lock-tag">🔒 Nutné ruční potvrzení</span>
+      </div>
+
+      <h1 id="alert-modal-title" class="mandatory-title">Zkontroluj si rozvrh a přípravu</h1>
+      <p id="alert-modal-subtitle" class="mandatory-subtitle"></p>
+
+      <!-- Dynamic Schedule or Homework Content -->
+      <div id="alert-modal-body" class="mandatory-body-scroll"></div>
+
+      <!-- Interactive Checklist that must be ticked -->
+      <div class="mandatory-checklist-section">
+        <div class="checklist-header">✅ Odškrtni si kontrolní seznam:</div>
+        <div id="alert-modal-checklist" class="checklist-items-wrap"></div>
+
+        <label class="master-confirm-row" for="alert-modal-master-check">
+          <input type="checkbox" id="alert-modal-master-check">
+          <strong id="alert-modal-master-label">Potvrzuji, že mám vše zkontrolované a připravené.</strong>
+        </label>
+      </div>
+
+      <button type="button" id="alert-modal-confirm-btn" class="btn-confirm-huge" disabled>
+        ✋ Potvrzuji, že mám vše připravené!
+      </button>
+    </div>
+  </dialog>
+
+  <!-- ==========================================================================
+       MODAL 2: EXTRACURRICULAR CLUB (KROUŽEK) EDITOR DIALOG
+       Uses closedby="any" for modern light-dismiss & mobile back gesture
+       ========================================================================== -->
+  <dialog id="club-editor-dialog" class="standard-modal" closedby="any" aria-labelledby="club-modal-heading">
+    <form id="club-editor-form" class="modal-form-box">
+      <h1 id="club-modal-heading" class="modal-heading">Přidat kroužek do rozvrhu</h1>
+      <input type="hidden" id="club-id-input">
+
+      <div class="form-group">
+        <label for="club-name-input">Název kroužku:</label>
+        <input type="text" id="club-name-input" class="form-input" placeholder="např. Keramika, Tanečky, Plavání, Skaut..." required>
+      </div>
+
+      <div class="form-row-3">
+        <div class="form-group">
+          <label for="club-day-input">Den v týdnu:</label>
+          <select id="club-day-input" class="form-input" required>
+            <option value="1">Pondělí</option>
+            <option value="2">Úterý</option>
+            <option value="3">Středa</option>
+            <option value="4">Čtvrtek</option>
+            <option value="5">Pátek</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="club-begin-input">Začátek:</label>
+          <input type="time" id="club-begin-input" class="form-input" value="14:30" required>
+        </div>
+        <div class="form-group">
+          <label for="club-end-input">Konec:</label>
+          <input type="time" id="club-end-input" class="form-input" value="16:00" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="club-location-input">Místo konání / vedoucí:</label>
+        <input type="text" id="club-location-input" class="form-input" placeholder="např. DDM / Malá tělocvična">
+      </div>
+
+      <div class="form-group">
+        <label for="club-equipment-input">Co si nezapomenout vzít s sebou (zobrazí se v ranním i večerním upozornění):</label>
+        <input type="text" id="club-equipment-input" class="form-input" placeholder="např. Cvičky, sportovní oblečení, pití">
+      </div>
+
+      <div class="form-group">
+        <label for="club-color-input">Barva štítku v rozvrhu:</label>
+        <input type="color" id="club-color-input" class="form-color-input" value="#ec4899">
+      </div>
+
+      <div class="modal-actions-row">
+        <button type="button" id="btn-cancel-club-modal" class="btn-outline">Zrušit</button>
+        <button type="submit" class="btn-primary">Uložit kroužek</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ==========================================================================
+       MODAL 3: ADD CUSTOM HOMEWORK DIALOG
+       ========================================================================== -->
+  <dialog id="custom-hw-dialog" class="standard-modal" closedby="any" aria-labelledby="custom-hw-heading">
+    <form id="custom-hw-form" class="modal-form-box">
+      <h1 id="custom-hw-heading" class="modal-heading">Přidat vlastní domácí úkol</h1>
+      <p class="card-desc">Hodí se pro úkoly, které paní učitelka zadala jen ústně při hodině.</p>
+
+      <div class="form-row-2">
+        <div class="form-group">
+          <label for="custom-hw-subject">Předmět:</label>
+          <select id="custom-hw-subject" class="form-input">
+            <option value="Čj">Český jazyk a literatura</option>
+            <option value="M">Matematika</option>
+            <option value="Aj">Anglický jazyk</option>
+            <option value="Př">Přírodopis</option>
+            <option value="D">Dějepis</option>
+            <option value="Z">Zeměpis</option>
+            <option value="Inf">Informatika</option>
+            <option value="Vv">Výtvarná výchova</option>
+            <option value="Hv">Hudební výchova</option>
+            <option value="Jiný">Jiný předmět / Poznámka</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="custom-hw-date">Na kdy (termín splnění):</label>
+          <input type="date" id="custom-hw-date" class="form-input" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="custom-hw-content">Zadání úkolu / co připravit:</label>
+        <textarea id="custom-hw-content" rows="3" class="form-input" placeholder="např. Pracovní sešit str. 24 cvičení 5, přinést rýsovací potřeby..." required></textarea>
+      </div>
+
+      <div class="modal-actions-row">
+        <button type="button" id="btn-cancel-custom-hw" class="btn-outline">Zrušit</button>
+        <button type="submit" class="btn-primary">Přidat úkol</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Toast Notification -->
+  <div id="app-toast" class="app-toast" role="status" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script src="./js/bakalari-api.js"></script>
+  <script src="./js/notifications.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
+

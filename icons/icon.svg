@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="owlGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f1f5f9"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Rounded Square -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGrad)"/>
+  
+  <!-- Subtle decorative stars -->
+  <circle cx="95" cy="110" r="8" fill="#fde047" opacity="0.8"/>
+  <circle cx="420" cy="95" r="10" fill="#fde047" opacity="0.9"/>
+  <circle cx="410" cy="390" r="6" fill="#ffffff" opacity="0.5"/>
+
+  <!-- Graduation Cap / School Hat -->
+  <polygon points="256,68 116,132 256,196 396,132" fill="#1e1b4b"/>
+  <polygon points="256,78 136,132 256,186 376,132" fill="#312e81"/>
+  <line x1="360" y1="148" x2="382" y2="215" stroke="#fbbf24" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="382" cy="220" r="12" fill="#f59e0b"/>
+
+  <!-- Cute Owl / School Mascot Body -->
+  <ellipse cx="256" cy="310" rx="125" ry="130" fill="url(#owlGrad)"/>
+  <ellipse cx="256" cy="335" rx="85" ry="85" fill="#e0e7ff"/>
+
+  <!-- Eyes -->
+  <circle cx="206" cy="255" r="42" fill="#ffffff" stroke="#312e81" stroke-width="8"/>
+  <circle cx="306" cy="255" r="42" fill="#ffffff" stroke="#312e81" stroke-width="8"/>
+  <circle cx="206" cy="255" r="20" fill="#1e1b4b"/>
+  <circle cx="306" cy="255" r="20" fill="#1e1b4b"/>
+  <circle cx="213" cy="247" r="7" fill="#ffffff"/>
+  <circle cx="313" cy="247" r="7" fill="#ffffff"/>
+
+  <!-- Beak -->
+  <polygon points="240,282 272,282 256,310" fill="#f59e0b"/>
+
+  <!-- Checkmark Badge (Preparedness & Homework Done) -->
+  <circle cx="365" cy="395" r="56" fill="#10b981" stroke="#ffffff" stroke-width="10"/>
+  <polyline points="338,395 357,414 395,376" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+

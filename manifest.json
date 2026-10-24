@@ -1,0 +1,46 @@
+{
+  "name": "Školní parťák – Bakaláři pro ZŠ",
+  "short_name": "Školní parťák",
+  "description": "Chytrá školní PWA aplikace napojená na Bakaláři API v3: rozvrh hodin, kroužky, známky s odhadem vysvědčení, domácí úkoly a připomínky s ručním potvrzením.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#6366f1",
+  "lang": "cs",
+  "dir": "ltr",
+  "categories": ["education", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Rozvrh a kroužky",
+      "short_name": "Rozvrh",
+      "description": "Zobrazit aktuální rozvrh hodin a odpolední kroužky",
+      "url": "./index.html#timetable",
+      "icons": [{ "src": "./icons/icon.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Domácí úkoly",
+      "short_name": "Úkoly",
+      "description": "Zkontrolovat domácí úkoly na další den",
+      "url": "./index.html#homeworks",
+      "icons": [{ "src": "./icons/icon.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Známky a vysvědčení",
+      "short_name": "Známky",
+      "description": "Přehled známek a odhad průměru na vysvědčení",
+      "url": "./index.html#marks",
+      "icons": [{ "src": "./icons/icon.svg", "sizes": "192x192" }]
+    }
+  ]
+}
+
