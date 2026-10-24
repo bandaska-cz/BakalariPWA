@@ -151,6 +151,8 @@ class BakalariApiClient {
           if (data && (response.ok || data.error || data.error_description)) {
             lastResult = { response, data, base, loginPath: p };
             break;
+          } else if (!response.ok) {
+            lastError = new Error(`Server vrátil HTTP ${response.status} na ${p}`);
           }
         } catch (e) {
           lastError = e;
