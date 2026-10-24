@@ -2044,41 +2044,145 @@ dialog.standard-modal::backdrop {
 }
 
 /* ==========================================================================
-   V1.1.0: FAMILY CLOUD SYNC, DUAL PINS & PARENT KOMENS VIEW
+   V1.1.1: MODERN COMPACT HEADER, FAMILY PIN SWITCH & KOMENS VIEW
    ========================================================================== */
 
-.role-parent {
-  background: #dbeafe !important;
-  color: #1e40af !important;
-  border: 1px solid #93c5fd;
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.65rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: nowrap;
 }
 
-.role-child {
-  background: #fce7f3 !important;
-  color: #9d174d !important;
-  border: 1px solid #f9a8d4;
+.brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  flex: 1;
 }
 
-.btn-chip-pin {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: #ffffff;
-  border: none;
+.brand-text-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.brand-title {
+  font-size: 1.2rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.conn-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.conn-status-dot.live {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+}
+
+.conn-status-dot.demo {
+  background: #a855f7;
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.2);
+}
+
+.conn-status-dot.offline {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+}
+
+.brand-sub {
+  margin-top: 0.1rem;
+  min-width: 0;
+}
+
+.student-name-text {
+  font-size: 0.79rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-role-pin-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.78rem;
   border-radius: 999px;
-  padding: 0.4rem 0.85rem;
   font-family: inherit;
   font-size: 0.8rem;
   font-weight: 800;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
-  transition: transform 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
 }
 
-.btn-chip-pin:hover {
+.btn-role-pin-switch:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.18);
+}
+
+.btn-role-pin-switch.role-parent {
+  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+  color: #3730a3;
+  border: 1px solid #a5b4fc;
+}
+
+.btn-role-pin-switch.role-child {
+  background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%);
+  color: #9d174d;
+  border: 1px solid #f9a8d4;
+}
+
+.pin-key-divider {
+  opacity: 0.45;
+}
+
+.pin-key-chip {
+  background: rgba(255, 255, 255, 0.75);
+  padding: 0.1rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.73rem;
+  font-weight: 900;
+}
+
+.role-parent {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+
+.role-child {
+  background: #fce7f3;
+  color: #9d174d;
+  border: 1px solid #f9a8d4;
 }
 
 .nav-parent-only {
@@ -2140,29 +2244,26 @@ dialog.standard-modal::backdrop {
 }
 
 .komens-msg-card {
-  background: #f8fafc;
+  background: #ffffff;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 1rem 1.15rem;
+  padding: 1.1rem 1.2rem;
+  box-shadow: var(--shadow-sm);
   transition: box-shadow 0.15s;
 }
 
 .komens-msg-card.unread {
-  background: #eff6ff;
+  background: #f8faff;
   border-left: 5px solid var(--primary);
 }
 
-.komens-msg-top {
+.komens-msg-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-bottom: 0.35rem;
-}
-
-.komens-sender {
-  font-weight: 900;
+  margin-bottom: 0.45rem;
   font-size: 0.9rem;
   color: var(--primary);
 }
@@ -2173,22 +2274,66 @@ dialog.standard-modal::backdrop {
   font-weight: 700;
 }
 
-.komens-title {
-  margin: 0 0 0.45rem;
-  font-size: 1rem;
+.komens-msg-title {
+  margin: 0 0 0.6rem;
+  font-size: 1.02rem;
   font-weight: 900;
   color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
-.komens-text {
-  font-size: 0.88rem;
-  line-height: 1.5;
+.komens-confirm-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+}
+
+.komens-confirm-badge.warn {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.komens-confirm-badge.ok {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+}
+
+.komens-msg-body {
+  font-size: 0.92rem;
+  line-height: 1.58;
   color: #334155;
   word-break: break-word;
 }
 
-.komens-text p {
-  margin: 0 0 0.4rem;
+.komens-p {
+  margin: 0 0 0.45rem;
+}
+
+.komens-p:last-child {
+  margin-bottom: 0;
+}
+
+.komens-msg-actions {
+  margin-top: 0.85rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.komens-read-label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #16a34a;
 }
 
 /* Absence Summary */

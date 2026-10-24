@@ -313,18 +313,20 @@ class BakalariApiClient {
 
     const doFetch = async (token) => {
       const url = this.buildEndpointUrl(this.auth.schoolUrl, path, this.auth.proxyUrl);
-      this.log(`GET ${path} ...`, 'info');
-      return this.fetchWithTimeout(
-        url,
-        {
-          ...options,
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            ...(options.headers || {})
-          }
-        },
-        12000
-      );
+      const method = (options.method || 'GET').toUpperCase();
+      this.log(`${method} ${path} ...`, 'info');
+      const fetchOpts = {
+        ...options,
+        method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          ...(options.headers || {})
+        }
+      };
+      if ((method === 'POST' || method === 'PUT') && fetchOpts.body === undefined) {
+        fetchOpts.body = '';
+      }
+      return this.fetchWithTimeout(url, fetchOpts, 12000);
     };
 
     let response = await doFetch(this.auth.accessToken);
@@ -339,8 +341,45 @@ class BakalariApiClient {
       throw new Error(`Bakaláři API chyba: HTTP ${response.status} na ${path}`);
     }
 
-    this.log(`Načteno ${path} (HTTP 200 OK)`, 'success');
-    return response.json();
+    this.log(`Dokončeno ${path} (HTTP ${response.status})`, 'success');
+    const rawText = await response.text();
+    if (!rawText) return {};
+    try {
+      return JSON.parse(rawText);
+    } catch {
+      return { raw: rawText };
+    }
+  }
+
+  /**
+   * Označí přijatou Komens zprávu jako přečtenou v Bakalářích (PUT /api/3/komens/message/$ID/mark-as-read)
+   */
+  async markKomensMessageRead(messageId) {
+    if (!this.isLiveMode() || !messageId) return { ok: true, demo: true };
+    await this.apiRequest(`/api/3/komens/message/${encodeURIComponent(messageId)}/mark-as-read`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: ''
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Potvrdí přijetí Komens zprávy v Bakalářích (PUT /api/3/komens/message/$ID/mark-as-confirmed + mark-as-read)
+   */
+  async confirmKomensMessage(messageId) {
+    if (!this.isLiveMode() || !messageId) return { ok: true, demo: true };
+    try {
+      await this.apiRequest(`/api/3/komens/message/${encodeURIComponent(messageId)}/mark-as-confirmed`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: ''
+      });
+    } catch (e) {
+      console.warn('mark-as-confirmed vrátil chybu, zkouším mark-as-read:', e);
+    }
+    await this.markKomensMessageRead(messageId).catch(() => {});
+    return { ok: true };
   }
 
   /* ========================================================================

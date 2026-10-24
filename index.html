@@ -23,33 +23,24 @@
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-wrap">
-        <img src="./icons/icon.svg" alt="Maskot Školní parťák" width="44" height="44" fetchpriority="high" class="brand-logo">
-        <div>
-          <span class="brand-title">Školní parťák</span>
+        <img src="./icons/icon.svg" alt="Maskot Školní parťák" width="42" height="42" fetchpriority="high" class="brand-logo">
+        <div class="brand-text-col">
+          <div class="brand-title-row">
+            <span class="brand-title">Školní parťák</span>
+            <span id="header-mode-badge" class="conn-status-dot demo" title="Ukázkový režim"></span>
+          </div>
           <div class="brand-sub">
-            <span id="header-student-name">Theuška</span>
-            <span id="header-role-badge" class="status-pill role-parent">👨‍👩‍👧 Rodič</span>
-            <span id="header-mode-badge" class="status-pill demo">Ukázkový režim</span>
+            <span id="header-student-name" class="student-name-text">Theuška</span>
           </div>
         </div>
       </div>
 
       <div class="header-actions">
-        <button type="button" id="btn-open-pin-modal" class="btn-chip-pin" title="Přihlásit telefon nebo přepnout režim pomocí PINu">
-          <span aria-hidden="true">🔑</span> <span id="btn-pin-label">Zadat PIN</span>
+        <button type="button" id="btn-open-pin-modal" class="btn-role-pin-switch role-parent" title="Kliknutím zadáte PIN nebo přepnete mezi Rodičovským a Dětským režimem">
+          <span id="header-role-badge" class="role-badge-label">👨‍👩‍👧 Rodič</span>
+          <span class="pin-key-divider" aria-hidden="true">•</span>
+          <span class="pin-key-chip"><span aria-hidden="true">🔑</span> <span id="btn-pin-label">PIN</span></span>
         </button>
-
-        <div class="quick-test-pills" role="group" aria-label="Rychlé vyzkoušení vyskakovacích upozornění">
-          <button type="button" class="btn-chip-alert morning" data-test-alert="morning" title="Vyzkoušet ranní upozornění na rozvrh">
-            <span aria-hidden="true">☀️</span> Ráno
-          </button>
-          <button type="button" class="btn-chip-alert hw" data-test-alert="homework17" title="Vyzkoušet upozornění v 17:00 na úkoly">
-            <span aria-hidden="true">🕔</span> 17:00 Úkoly
-          </button>
-          <button type="button" class="btn-chip-alert evening" data-test-alert="evening" title="Vyzkoušet večerní upozornění na další den">
-            <span aria-hidden="true">🌙</span> Večer
-          </button>
-        </div>
 
         <button type="button" id="btn-refresh-data" class="btn-icon-round" title="Aktualizovat data z Bakalářů a cloudu" aria-label="Aktualizovat data z Bakalářů a cloudu">
           <span aria-hidden="true">🔄</span>
@@ -427,7 +418,7 @@
   <!-- ==================== FOOTER ==================== -->
   <footer class="app-footer">
     <p>Školní parťák – PWA pro základní školu • Postaveno na <a href="https://github.com/bakalari-api/bakalari-api-v3" target="_blank" rel="noopener noreferrer">Bakaláři API v3</a></p>
-    <p class="app-version-tag">Verze: <strong>v1.1.0 (Rodinné PINy &amp; Komens)</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
+    <p class="app-version-tag">Verze: <strong>v1.1.1 (Komens formátování, potvrzování zpráv &amp; moderní hlavička)</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
   </footer>
 
   <!-- ==========================================================================
@@ -581,10 +572,7 @@
         <input type="password" id="pin-connect-code" class="form-input pin-big-input" inputmode="numeric" placeholder="••••" required>
       </div>
 
-      <div class="form-group">
-        <label for="pin-connect-worker">Rodinný cloud (Cloudflare Worker):</label>
-        <input type="url" id="pin-connect-worker" class="form-input" value="https://mute-cloud-b42b.radek-bunda.workers.dev" required>
-      </div>
+      <input type="hidden" id="pin-connect-worker" value="https://mute-cloud-b42b.radek-bunda.workers.dev">
 
       <div id="pin-connect-error" class="login-result-box error" hidden></div>
 

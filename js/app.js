@@ -387,6 +387,7 @@ class SkolniPartakApp {
   renderHeaderStatus() {
     const studentNameEl = document.getElementById('header-student-name');
     const roleBadgeEl = document.getElementById('header-role-badge');
+    const openPinBtn = document.getElementById('btn-open-pin-modal');
     const modeBadgeEl = document.getElementById('header-mode-badge');
     const pinLabelEl = document.getElementById('btn-pin-label');
     const navKomensItem = document.getElementById('nav-item-komens');
@@ -395,19 +396,22 @@ class SkolniPartakApp {
     const isParent = this.isParentMode();
 
     if (studentNameEl) {
-      studentNameEl.textContent = user.FullName || this.notifier.settings.studentName || 'Theuška';
+      const fullName = user.FullName || this.notifier.settings.studentName || 'Theuška';
+      const modeText = this.schoolData?.isDemo
+        ? 'Ukázkový režim'
+        : this.schoolData?.isOfflineFallback
+          ? 'Offline'
+          : 'Bakaláři aktivní';
+      studentNameEl.textContent = `${fullName} • ${modeText}`;
     }
     if (roleBadgeEl) {
-      if (isParent) {
-        roleBadgeEl.textContent = '👨‍👩‍👧 Režim Rodič';
-        roleBadgeEl.className = 'status-pill role-parent';
-      } else {
-        roleBadgeEl.textContent = '👧 Režim Theuška';
-        roleBadgeEl.className = 'status-pill role-child';
-      }
+      roleBadgeEl.textContent = isParent ? '👨‍👩‍👧 Rodič' : '👧 Theuška';
+    }
+    if (openPinBtn) {
+      openPinBtn.className = `btn-role-pin-switch ${isParent ? 'role-parent' : 'role-child'}`;
     }
     if (pinLabelEl) {
-      pinLabelEl.textContent = this.familyConfig.activePin ? 'Přepnout PIN' : 'Zadat PIN';
+      pinLabelEl.textContent = this.familyConfig.activePin ? 'Změnit' : 'PIN';
     }
     if (navKomensItem) {
       navKomensItem.hidden = !isParent;
@@ -418,14 +422,14 @@ class SkolniPartakApp {
 
     if (modeBadgeEl) {
       if (this.schoolData?.isDemo) {
-        modeBadgeEl.textContent = 'Ukázkový režim (Demo ZŠ)';
-        modeBadgeEl.className = 'status-pill demo';
+        modeBadgeEl.title = 'Ukázkový režim (Demo ZŠ)';
+        modeBadgeEl.className = 'conn-status-dot demo';
       } else if (this.schoolData?.isOfflineFallback) {
-        modeBadgeEl.textContent = 'Offline mezipaměť';
-        modeBadgeEl.className = 'status-pill offline';
+        modeBadgeEl.title = 'Offline mezipaměť';
+        modeBadgeEl.className = 'conn-status-dot offline';
       } else {
-        modeBadgeEl.textContent = 'Bakaláři API v3 aktivní';
-        modeBadgeEl.className = 'status-pill live';
+        modeBadgeEl.title = 'Bakaláři API v3 aktivní';
+        modeBadgeEl.className = 'conn-status-dot live';
       }
     }
   }
@@ -1090,6 +1094,51 @@ class SkolniPartakApp {
      PARENT-ONLY SECTION: KOMENS MESSAGES, NOTICEBOARD & ABSENCE
      ======================================================================== */
 
+  /**
+   * Cleans and formats Bakaláři Komens HTML messages:
+   * - Decodes &nbsp; and all HTML entities (even if double-escaped)
+   * - Turns runs of 4+ &nbsp;/spaces (often used by teachers instead of Enter) into line breaks
+   * - Preserves <br>, <p>, <div>, <li> as clean readable paragraphs
+   */
+  formatKomensText(rawHtml) {
+    if (!rawHtml) return '';
+    let str = String(rawHtml);
+
+    // 1. Replace block/line-break HTML tags with newline markers
+    str = str
+      .replace(/<\s*br\s*\/?>/gi, '\n')
+      .replace(/<\s*\/\s*(p|div|tr|h[1-6])\s*>/gi, '\n')
+      .replace(/<\s*li[^>]*>/gi, '\n• ')
+      .replace(/<\s*\/\s*li\s*>/gi, '\n');
+
+    // 2. Strip all remaining HTML tags
+    str = str.replace(/<[^>]*>/g, '');
+
+    // 3. Decode HTML entities (&nbsp;, &amp;, &quot;, &#160;, etc.) up to 2 passes (handles double-encoded &amp;nbsp;)
+    const txt = document.createElement('textarea');
+    for (let i = 0; i < 2; i++) {
+      txt.innerHTML = str;
+      str = txt.value;
+    }
+
+    // 4. Teachers in Bakaláři often hold Spacebar (creating 5..50 &nbsp;) to push text to a new line.
+    // Convert 4 or more consecutive spaces / non-breaking spaces (\u00A0) into a clean newline!
+    str = str.replace(/[ \t\u00A0]{4,}/g, '\n');
+
+    // 5. Replace remaining single non-breaking spaces (\u00A0) with normal spaces
+    str = str.replace(/\u00A0/g, ' ');
+
+    // 6. Clean up each line and remove excessive empty lines
+    const lines = str
+      .split(/\r?\n/)
+      .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+      .filter((line, idx, arr) => line !== '' || (idx > 0 && arr[idx - 1] !== ''));
+
+    return lines
+      .map((line) => (line ? `<p class="komens-p">${window.escapeHtml(line)}</p>` : ''))
+      .join('');
+  }
+
   renderParentKomensSection() {
     const receivedEl = document.getElementById('parent-komens-received-list');
     const noticeEl = document.getElementById('parent-komens-noticeboard-list');
@@ -1106,7 +1155,7 @@ class SkolniPartakApp {
     const noticeboard = Array.isArray(komens.noticeboard) ? komens.noticeboard : [];
     const events = Array.isArray(this.schoolData?.events) ? this.schoolData.events : [];
 
-    const unreadCount = received.filter((m) => m.Read === false).length;
+    const unreadCount = received.filter((m) => m.Read === false || (m.CanConfirm && !m.Confirmed)).length;
     if (badgeEl) {
       badgeEl.textContent = String(unreadCount);
       badgeEl.hidden = unreadCount === 0;
@@ -1117,25 +1166,95 @@ class SkolniPartakApp {
         receivedEl.innerHTML = `<p class="empty-state-msg">Žádné přijaté zprávy v modulu Komens.</p>`;
       } else {
         receivedEl.innerHTML = received.map((msg) => {
+          const msgId = msg.Id || msg.id || '';
           const senderName = msg.Sender?.Name || msg.SenderName || 'Škola / Učitel';
           const sentDate = msg.SentDate ? new Date(msg.SentDate).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-          const rawText = String(msg.Text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          const formattedBody = this.formatKomensText(msg.Text || '');
           const isUnread = msg.Read === false;
+          const needsConfirm = Boolean(msg.CanConfirm && !msg.Confirmed);
+          const isConfirmed = Boolean(msg.Confirmed);
 
           return `
-            <article class="komens-msg-card ${isUnread ? 'unread' : ''}">
+            <article class="komens-msg-card ${isUnread || needsConfirm ? 'unread' : ''}">
               <div class="komens-msg-header">
                 <strong>👩‍🏫 ${window.escapeHtml(senderName)}</strong>
                 <span class="komens-date">${window.escapeHtml(sentDate)}</span>
               </div>
               <h4 class="komens-msg-title">
                 ${isUnread ? `<span class="mark-new-dot">NOVÁ</span> ` : ''}
+                ${needsConfirm ? `<span class="komens-confirm-badge warn">⚠️ Vyžaduje potvrzení</span> ` : ''}
+                ${isConfirmed ? `<span class="komens-confirm-badge ok">✅ Potvrzeno škole</span> ` : ''}
                 ${window.escapeHtml(msg.Title || 'Zpráva ze školy')}
               </h4>
-              <p class="komens-msg-body">${window.escapeHtml(rawText)}</p>
+              <div class="komens-msg-body">${formattedBody}</div>
+              <div class="komens-msg-actions">
+                ${needsConfirm ? `
+                  <button type="button" class="btn-primary-sm" data-confirm-komens="${window.escapeHtml(msgId)}">
+                    ✍️ Potvrdit přečtení učiteli
+                  </button>
+                ` : ''}
+                ${isUnread && !needsConfirm ? `
+                  <button type="button" class="btn-outline-sm" data-read-komens="${window.escapeHtml(msgId)}">
+                    ✓ Označit jako přečtené
+                  </button>
+                ` : ''}
+                ${!isUnread && !needsConfirm && !isConfirmed ? `
+                  <span class="komens-read-label">✓ Přečteno</span>
+                  <button type="button" class="btn-link-mini" data-confirm-komens="${window.escapeHtml(msgId)}" title="Odeslat potvrzení o přečtení do Bakalářů">
+                    Potvrdit v Bakalářích
+                  </button>
+                ` : ''}
+              </div>
             </article>
           `;
         }).join('');
+
+        // Wire confirm buttons
+        receivedEl.querySelectorAll('[data-confirm-komens]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-confirm-komens');
+            btn.disabled = true;
+            btn.textContent = 'Potvrzuji v Bakalářích...';
+            try {
+              await this.api.confirmKomensMessage(id);
+              const target = received.find((m) => String(m.Id || m.id) === String(id));
+              if (target) {
+                target.Confirmed = true;
+                target.Read = true;
+              }
+              this.api.setCached(window.BakalariPWA.STORAGE_KEYS.CACHE_KOMENS, this.schoolData.komens);
+              this.renderParentKomensSection();
+              this.showToast('✅ Zpráva byla potvrzena a označena jako přečtená v Bakalářích!');
+            } catch (err) {
+              btn.disabled = false;
+              btn.textContent = '✍️ Potvrdit přečtení učiteli';
+              this.showToast(`Chyba při potvrzování zprávy: ${err.message}`, 'error');
+            }
+          });
+        });
+
+        // Wire mark-as-read buttons
+        receivedEl.querySelectorAll('[data-read-komens]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-read-komens');
+            btn.disabled = true;
+            btn.textContent = 'Označuji...';
+            try {
+              await this.api.markKomensMessageRead(id);
+              const target = received.find((m) => String(m.Id || m.id) === String(id));
+              if (target) {
+                target.Read = true;
+              }
+              this.api.setCached(window.BakalariPWA.STORAGE_KEYS.CACHE_KOMENS, this.schoolData.komens);
+              this.renderParentKomensSection();
+              this.showToast('✓ Zpráva označena jako přečtená.');
+            } catch (err) {
+              btn.disabled = false;
+              btn.textContent = '✓ Označit jako přečtené';
+              this.showToast(`Chyba: ${err.message}`, 'error');
+            }
+          });
+        });
       }
     }
 
@@ -1145,14 +1264,14 @@ class SkolniPartakApp {
         html = `<p class="empty-state-msg">Žádná aktuální sdělení na nástěnce.</p>`;
       } else {
         for (const nb of noticeboard) {
-          const rawText = String(nb.Text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          const formattedBody = this.formatKomensText(nb.Text || '');
           html += `
             <article class="komens-msg-card notice">
               <div class="komens-msg-header">
                 <strong>📌 ${window.escapeHtml(nb.Sender?.Name || 'Nástěnka školy')}</strong>
               </div>
               <h4 class="komens-msg-title">${window.escapeHtml(nb.Title || 'Oznámení')}</h4>
-              <p class="komens-msg-body">${window.escapeHtml(rawText)}</p>
+              <div class="komens-msg-body">${formattedBody}</div>
             </article>
           `;
         }
