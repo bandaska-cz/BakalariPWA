@@ -68,8 +68,13 @@ class SkolniPartakApp {
 
   applyCloudState(state) {
     if (!state) return;
+    // Use shared Bakaláři token from Family Cloud when in Child Mode (Theuška)
+    // OR when this parent phone has not logged in with its own separate Bakaláři account yet.
     if (state.bakalariAuth && state.bakalariAuth.accessToken) {
-      this.api.saveAuth(state.bakalariAuth);
+      const useSharedToken = !this.isParentMode() || !this.familyConfig.ownBakalariLogin || !this.api.isLiveMode();
+      if (useSharedToken) {
+        this.api.saveAuth(state.bakalariAuth);
+      }
     }
     if (Array.isArray(state.clubs)) {
       this.clubs = state.clubs;
@@ -104,17 +109,20 @@ class SkolniPartakApp {
     }
   }
 
-  async pushFamilySync() {
+  async pushFamilySync(includeAuth = false) {
     if (!this.familyConfig.activePin || !this.familyConfig.workerUrl) return;
     try {
-      const res = await this.api.syncFamilyState(this.familyConfig.workerUrl, this.familyConfig.activePin, {
-        bakalariAuth: this.api.isLiveMode() ? this.api.auth : undefined,
+      const payload = {
         clubs: this.clubs,
         customHomeworks: this.customHomeworks,
         hwDoneMap: this.hwDoneMap,
         confirmations: this.notifier.confirmations,
         settings: this.notifier.settings
-      });
+      };
+      if (includeAuth && this.api.isLiveMode()) {
+        payload.bakalariAuth = this.api.auth;
+      }
+      const res = await this.api.syncFamilyState(this.familyConfig.workerUrl, this.familyConfig.activePin, payload);
       if (res && res.state) {
         this.applyCloudState(res.state);
       }
@@ -1364,18 +1372,22 @@ class SkolniPartakApp {
 
     if (connStateEl) {
       if (this.api.isLiveMode()) {
+        const accountTypeBadge = this.familyConfig.ownBakalariLogin
+          ? '🔐 Vlastní přihlášení na tomto telefonu'
+          : '☁️ Sdílený rodinný účet z cloudu (můžete se níže přihlásit i vlastním rodičovským účtem)';
         connStateEl.innerHTML = `
           <div class="conn-banner live">
-            <span>🟢 <strong>Připojeno k Bakalářům:</strong> ${window.escapeHtml(this.api.auth.schoolUrl)} (uživatel: <strong>${window.escapeHtml(this.api.auth.username)}</strong>)</span>
-            <button type="button" class="btn-outline-sm" id="btn-logout-baka">Odpojit a přepnout na Demo</button>
+            <span>🟢 <strong>Připojeno k Bakalářům:</strong> ${window.escapeHtml(this.api.auth.schoolUrl)} • účet: <strong>${window.escapeHtml(this.api.auth.username)}</strong> (${accountTypeBadge})</span>
+            <button type="button" class="btn-outline-sm" id="btn-logout-baka">Odpojit tento účet</button>
           </div>
         `;
         const logoutBtn = document.getElementById('btn-logout-baka');
         if (logoutBtn) {
           logoutBtn.addEventListener('click', () => {
+            this.saveFamilyConfig({ ownBakalariLogin: false });
             this.api.logout();
             this.refreshData();
-            this.showToast('Odpojeno. Aplikace nyní běží v ukázkovém režimu.');
+            this.showToast('Účet Bakalářů byl na tomto telefonu odpojen.');
           });
         }
       } else {
@@ -1861,15 +1873,15 @@ class SkolniPartakApp {
 
         try {
           await this.api.login(url, user, pass, proxy);
+          this.saveFamilyConfig({ ownBakalariLogin: true });
           document.getElementById('input-baka-pass').value = '';
           await this.refreshData();
-          this.pushFamilySync();
           if (resultBoxEl) {
             resultBoxEl.hidden = false;
             resultBoxEl.className = 'login-result-box success';
-            resultBoxEl.textContent = `✅ Úspěšně připojeno ke školnímu systému Bakaláři (${this.api.auth.schoolUrl})! Rozvrh, známky i úkoly byly načteny.`;
+            resultBoxEl.textContent = `✅ Úspěšně připojeno pod účtem ${this.api.auth.username} (${this.api.auth.schoolUrl})! Tento telefon nyní čte a potvrzuje zprávy Komens pod tímto účtem a zároveň zůstává v rodinné synchronizaci.`;
           }
-          this.showToast('✅ Úspěšně připojeno ke školnímu systému Bakaláři!');
+          this.showToast(`✅ Připojeno k Bakalářům pod účtem ${this.api.auth.username}!`);
         } catch (err) {
           if (resultBoxEl) {
             resultBoxEl.hidden = false;
