@@ -19,6 +19,7 @@ class SkolniPartakApp {
     this.api = new window.BakalariPWA.BakalariApiClient();
     this.notifier = new window.SchoolNotificationManager(this);
 
+    this.familyConfig = this.loadFamilyConfig();
     this.schoolData = null;
     this.clubs = window.BakalariPWA.loadCustomClubs();
     this.customHomeworks = this.loadCustomHomeworks();
@@ -31,6 +32,95 @@ class SkolniPartakApp {
     this.timetableViewMode = 'daily'; // 'daily' | 'weekly'
     this.weekOffset = 0; // 0 = current week, 1 = next week
     this.hwFilter = 'active'; // 'active' | 'tomorrow' | 'all'
+  }
+
+  loadFamilyConfig() {
+    try {
+      const raw = localStorage.getItem(window.BakalariPWA.STORAGE_KEYS.FAMILY_SYNC);
+      if (raw) {
+        return {
+          role: 'parent',
+          workerUrl: 'https://mute-cloud-b42b.radek-bunda.workers.dev',
+          activePin: '',
+          parentPin: '',
+          childPin: '',
+          ...JSON.parse(raw)
+        };
+      }
+    } catch (_) {}
+    return {
+      role: 'parent', // 'parent' | 'child'
+      workerUrl: 'https://mute-cloud-b42b.radek-bunda.workers.dev',
+      activePin: '',
+      parentPin: '',
+      childPin: ''
+    };
+  }
+
+  saveFamilyConfig(updates = {}) {
+    this.familyConfig = { ...this.familyConfig, ...updates };
+    localStorage.setItem(window.BakalariPWA.STORAGE_KEYS.FAMILY_SYNC, JSON.stringify(this.familyConfig));
+  }
+
+  isParentMode() {
+    return this.familyConfig.role !== 'child';
+  }
+
+  applyCloudState(state) {
+    if (!state) return;
+    if (state.bakalariAuth && state.bakalariAuth.accessToken) {
+      this.api.saveAuth(state.bakalariAuth);
+    }
+    if (Array.isArray(state.clubs)) {
+      this.clubs = state.clubs;
+      window.BakalariPWA.saveCustomClubs(this.clubs);
+    }
+    if (Array.isArray(state.customHomeworks)) {
+      this.customHomeworks = state.customHomeworks;
+      this.saveCustomHomeworks();
+    }
+    if (state.hwDoneMap) {
+      this.hwDoneMap = { ...this.hwDoneMap, ...state.hwDoneMap };
+      this.saveHwDoneMap();
+    }
+    if (state.confirmations) {
+      this.notifier.confirmations = { ...this.notifier.confirmations, ...state.confirmations };
+      this.notifier.saveConfirmations();
+    }
+    if (state.settings) {
+      this.notifier.saveSettings(state.settings);
+    }
+  }
+
+  async pullFamilySync() {
+    if (!this.familyConfig.activePin || !this.familyConfig.workerUrl) return;
+    try {
+      const res = await this.api.connectWithFamilyPin(this.familyConfig.workerUrl, this.familyConfig.activePin);
+      if (res && res.state) {
+        this.applyCloudState(res.state);
+      }
+    } catch (e) {
+      console.warn('Synchronizace z rodinného cloudu selhala:', e);
+    }
+  }
+
+  async pushFamilySync() {
+    if (!this.familyConfig.activePin || !this.familyConfig.workerUrl) return;
+    try {
+      const res = await this.api.syncFamilyState(this.familyConfig.workerUrl, this.familyConfig.activePin, {
+        bakalariAuth: this.api.isLiveMode() ? this.api.auth : undefined,
+        clubs: this.clubs,
+        customHomeworks: this.customHomeworks,
+        hwDoneMap: this.hwDoneMap,
+        confirmations: this.notifier.confirmations,
+        settings: this.notifier.settings
+      });
+      if (res && res.state) {
+        this.applyCloudState(res.state);
+      }
+    } catch (e) {
+      console.warn('Zápis do rodinného cloudu selhal:', e);
+    }
   }
 
   getInitialSelectedDay() {
@@ -97,15 +187,19 @@ class SkolniPartakApp {
   async refreshData() {
     this.setLoadingState(true);
     try {
+      // 1. Pull latest clubs, confirmations & auth from Family Cloud if PIN is active
+      await this.pullFamilySync();
+
+      // 2. Fetch Bakaláři data (including Komens & Absence only when in Parent Mode!)
       const targetDate = new Date();
       targetDate.setDate(targetDate.getDate() + this.weekOffset * 7);
-      this.schoolData = await this.api.fetchAllSchoolData(targetDate);
+      this.schoolData = await this.api.fetchAllSchoolData(targetDate, this.isParentMode());
       this.renderAll();
     } catch (err) {
       this.showToast(`Chyba načítání dat: ${err.message}`, 'error');
       // Fallback to demo data if nothing is cached
       if (!this.schoolData) {
-        this.schoolData = this.api.getDemoSchoolData();
+        this.schoolData = this.api.getDemoSchoolData(new Date(), this.isParentMode());
         this.renderAll();
       }
     } finally {
@@ -286,17 +380,42 @@ class SkolniPartakApp {
     this.renderTimetableSection();
     this.renderMarksSection();
     this.renderHomeworksSection();
+    this.renderParentKomensSection();
     this.renderSettingsSection();
   }
 
   renderHeaderStatus() {
     const studentNameEl = document.getElementById('header-student-name');
+    const roleBadgeEl = document.getElementById('header-role-badge');
     const modeBadgeEl = document.getElementById('header-mode-badge');
+    const pinLabelEl = document.getElementById('btn-pin-label');
+    const navKomensItem = document.getElementById('nav-item-komens');
+    const addClubMainBtn = document.getElementById('btn-add-club-main');
     const user = this.schoolData?.user || {};
+    const isParent = this.isParentMode();
 
     if (studentNameEl) {
-      studentNameEl.textContent = user.FullName || this.notifier.settings.studentName || 'Školačka';
+      studentNameEl.textContent = user.FullName || this.notifier.settings.studentName || 'Theuška';
     }
+    if (roleBadgeEl) {
+      if (isParent) {
+        roleBadgeEl.textContent = '👨‍👩‍👧 Režim Rodič';
+        roleBadgeEl.className = 'status-pill role-parent';
+      } else {
+        roleBadgeEl.textContent = '👧 Režim Theuška';
+        roleBadgeEl.className = 'status-pill role-child';
+      }
+    }
+    if (pinLabelEl) {
+      pinLabelEl.textContent = this.familyConfig.activePin ? 'Přepnout PIN' : 'Zadat PIN';
+    }
+    if (navKomensItem) {
+      navKomensItem.hidden = !isParent;
+    }
+    if (addClubMainBtn) {
+      addClubMainBtn.hidden = !isParent;
+    }
+
     if (modeBadgeEl) {
       if (this.schoolData?.isDemo) {
         modeBadgeEl.textContent = 'Ukázkový režim (Demo ZŠ)';
@@ -548,6 +667,7 @@ class SkolniPartakApp {
 
     const container = document.getElementById('timetable-content-area');
     if (!container) return;
+    const isParent = this.isParentMode();
 
     if (this.timetableViewMode === 'daily') {
       const schedule = this.getDayScheduleWithClubs(this.selectedDayOfWeek);
@@ -557,9 +677,11 @@ class SkolniPartakApp {
             <h3>${schedule.dayLabel} (${schedule.dateFormatted})</h3>
             <p>${schedule.lessons.length} vyučovacích hodin • ${schedule.clubs.length} ${schedule.clubs.length === 1 ? 'odpolední kroužek' : 'odpolední kroužky'}</p>
           </div>
-          <button type="button" class="btn-primary-sm" data-open-club-modal="${schedule.dayOfWeek}">
-            + Přidat kroužek na ${schedule.dayLabel.toLowerCase()}
-          </button>
+          ${isParent ? `
+            <button type="button" class="btn-primary-sm" data-open-club-modal="${schedule.dayOfWeek}">
+              + Přidat kroužek na ${schedule.dayLabel.toLowerCase()}
+            </button>
+          ` : ''}
         </div>
       `;
 
@@ -607,8 +729,8 @@ class SkolniPartakApp {
       if (schedule.clubs.length === 0) {
         html += `
           <div class="empty-clubs-box">
-            <p>Na ${schedule.dayLabel.toLowerCase()} zatím nemáš přidaný žádný odpolední kroužek.</p>
-            <button type="button" class="btn-outline-sm" data-open-club-modal="${schedule.dayOfWeek}">+ Přidat kroužek</button>
+            <p>Na ${schedule.dayLabel.toLowerCase()} zatím není naplánovaný žádný odpolední kroužek.</p>
+            ${isParent ? `<button type="button" class="btn-outline-sm" data-open-club-modal="${schedule.dayOfWeek}">+ Přidat kroužek</button>` : ''}
           </div>
         `;
       } else {
@@ -622,10 +744,12 @@ class SkolniPartakApp {
                 <p class="club-meta">📍 Místo: <strong>${window.escapeHtml(club.location || 'Neuvedeno')}</strong></p>
                 ${club.equipment ? `<p class="club-equip">🎒 Co s sebou: <strong>${window.escapeHtml(club.equipment)}</strong></p>` : ''}
               </div>
-              <div class="club-card-actions">
-                <button type="button" class="btn-icon-action" data-edit-club="${window.escapeHtml(club.id)}" title="Upravit kroužek" aria-label="Upravit kroužek">✏️</button>
-                <button type="button" class="btn-icon-action danger" data-delete-club="${window.escapeHtml(club.id)}" title="Smazat kroužek" aria-label="Smazat kroužek">🗑️</button>
-              </div>
+              ${isParent ? `
+                <div class="club-card-actions">
+                  <button type="button" class="btn-icon-action" data-edit-club="${window.escapeHtml(club.id)}" title="Upravit kroužek" aria-label="Upravit kroužek">✏️</button>
+                  <button type="button" class="btn-icon-action danger" data-delete-club="${window.escapeHtml(club.id)}" title="Smazat kroužek" aria-label="Smazat kroužek">🗑️</button>
+                </div>
+              ` : ''}
             </article>
           `;
         }
@@ -682,7 +806,7 @@ class SkolniPartakApp {
                   <strong>${window.escapeHtml(c.beginTime)}</strong> ${window.escapeHtml(c.name)}
                 </div>
               `).join('')}
-              <button type="button" class="btn-mini-add-club" data-open-club-modal="${d}">+ Kroužek</button>
+              ${isParent ? `<button type="button" class="btn-mini-add-club" data-open-club-modal="${d}">+ Kroužek</button>` : ''}
             </td>
           </tr>
         `;
@@ -946,6 +1070,7 @@ class SkolniPartakApp {
         const id = btn.getAttribute('data-del-custom-hw');
         this.customHomeworks = this.customHomeworks.filter((h) => h.id !== id);
         this.saveCustomHomeworks();
+        this.pushFamilySync();
         this.renderHomeworksSection();
         this.renderDashboard();
       });
@@ -955,9 +1080,126 @@ class SkolniPartakApp {
   toggleHomeworkDone(hwId, isDone) {
     this.hwDoneMap[hwId] = isDone;
     this.saveHwDoneMap();
+    this.pushFamilySync();
     this.renderHomeworksSection();
     this.renderDashboard();
     this.showToast(isDone ? '✅ Úkol označen jako splněný!' : 'Úkol vrácen mezi rozpracované.');
+  }
+
+  /* ========================================================================
+     PARENT-ONLY SECTION: KOMENS MESSAGES, NOTICEBOARD & ABSENCE
+     ======================================================================== */
+
+  renderParentKomensSection() {
+    const receivedEl = document.getElementById('parent-komens-received-list');
+    const noticeEl = document.getElementById('parent-komens-noticeboard-list');
+    const absenceEl = document.getElementById('parent-absence-summary');
+    const badgeEl = document.getElementById('nav-komens-badge');
+
+    if (!this.isParentMode()) {
+      if (badgeEl) badgeEl.hidden = true;
+      return;
+    }
+
+    const komens = this.schoolData?.komens || { received: [], noticeboard: [] };
+    const received = Array.isArray(komens.received) ? komens.received : [];
+    const noticeboard = Array.isArray(komens.noticeboard) ? komens.noticeboard : [];
+    const events = Array.isArray(this.schoolData?.events) ? this.schoolData.events : [];
+
+    const unreadCount = received.filter((m) => m.Read === false).length;
+    if (badgeEl) {
+      badgeEl.textContent = String(unreadCount);
+      badgeEl.hidden = unreadCount === 0;
+    }
+
+    if (receivedEl) {
+      if (received.length === 0) {
+        receivedEl.innerHTML = `<p class="empty-state-msg">Žádné přijaté zprávy v modulu Komens.</p>`;
+      } else {
+        receivedEl.innerHTML = received.map((msg) => {
+          const senderName = msg.Sender?.Name || msg.SenderName || 'Škola / Učitel';
+          const sentDate = msg.SentDate ? new Date(msg.SentDate).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+          const rawText = String(msg.Text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          const isUnread = msg.Read === false;
+
+          return `
+            <article class="komens-msg-card ${isUnread ? 'unread' : ''}">
+              <div class="komens-msg-header">
+                <strong>👩‍🏫 ${window.escapeHtml(senderName)}</strong>
+                <span class="komens-date">${window.escapeHtml(sentDate)}</span>
+              </div>
+              <h4 class="komens-msg-title">
+                ${isUnread ? `<span class="mark-new-dot">NOVÁ</span> ` : ''}
+                ${window.escapeHtml(msg.Title || 'Zpráva ze školy')}
+              </h4>
+              <p class="komens-msg-body">${window.escapeHtml(rawText)}</p>
+            </article>
+          `;
+        }).join('');
+      }
+    }
+
+    if (noticeEl) {
+      let html = '';
+      if (noticeboard.length === 0 && events.length === 0) {
+        html = `<p class="empty-state-msg">Žádná aktuální sdělení na nástěnce.</p>`;
+      } else {
+        for (const nb of noticeboard) {
+          const rawText = String(nb.Text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          html += `
+            <article class="komens-msg-card notice">
+              <div class="komens-msg-header">
+                <strong>📌 ${window.escapeHtml(nb.Sender?.Name || 'Nástěnka školy')}</strong>
+              </div>
+              <h4 class="komens-msg-title">${window.escapeHtml(nb.Title || 'Oznámení')}</h4>
+              <p class="komens-msg-body">${window.escapeHtml(rawText)}</p>
+            </article>
+          `;
+        }
+        for (const ev of events.slice(0, 5)) {
+          const dt = ev.StartTime ? new Date(ev.StartTime).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) : '';
+          html += `
+            <article class="komens-msg-card event">
+              <div class="komens-msg-header">
+                <strong>🗓️ Školní akce (${window.escapeHtml(dt)})</strong>
+              </div>
+              <h4 class="komens-msg-title">${window.escapeHtml(ev.Title || 'Událost')}</h4>
+              ${ev.Description ? `<p class="komens-msg-body">${window.escapeHtml(ev.Description)}</p>` : ''}
+            </article>
+          `;
+        }
+      }
+      noticeEl.innerHTML = html;
+    }
+
+    if (absenceEl) {
+      const abs = this.schoolData?.absence;
+      if (!abs || (!Array.isArray(abs.Absences) && !Array.isArray(abs.AbsencesPerSubject))) {
+        absenceEl.innerHTML = `<p class="empty-state-msg">Žádná zameškaná výuka v tomto pololetí.</p>`;
+      } else {
+        const daysList = Array.isArray(abs.Absences) ? abs.Absences : [];
+        let totalMissed = 0;
+        let totalUnsolved = 0;
+        for (const d of daysList) {
+          totalMissed += Number(d.Ok || 0) + Number(d.Missed || 0) + Number(d.Unsolved || 0);
+          totalUnsolved += Number(d.Unsolved || 0);
+        }
+
+        absenceEl.innerHTML = `
+          <div class="absence-stats-row">
+            <div class="abs-stat-pill">Celkem zameškaných hodin: <strong>${totalMissed}</strong></div>
+            <div class="abs-stat-pill ${totalUnsolved > 0 ? 'warn' : ''}">Neomluveno / k řešení: <strong>${totalUnsolved}</strong></div>
+          </div>
+          ${Array.isArray(abs.AbsencesPerSubject) && abs.AbsencesPerSubject.length > 0 ? `
+            <div class="abs-subj-list">
+              ${abs.AbsencesPerSubject.filter((s) => (s.Base || s.Excused || 0) > 0).map((s) => `
+                <span class="g-chip">${window.escapeHtml(s.SubjectName)}: <strong>${s.Base || s.Excused || 0} hod.</strong></span>
+              `).join('')}
+            </div>
+          ` : ''}
+        `;
+      }
+    }
   }
 
   /* ========================================================================
@@ -969,6 +1211,31 @@ class SkolniPartakApp {
     const userInput = document.getElementById('input-baka-user');
     const proxyInput = document.getElementById('input-baka-proxy');
     const connStateEl = document.getElementById('baka-connection-status');
+
+    // Family Sync inputs
+    const workerInput = document.getElementById('family-worker-url');
+    const parentPinInput = document.getElementById('family-parent-pin');
+    const childPinInput = document.getElementById('family-child-pin');
+    const familyStatusPill = document.getElementById('family-sync-status-pill');
+
+    if (workerInput && this.familyConfig.workerUrl) {
+      workerInput.value = this.familyConfig.workerUrl;
+    }
+    if (parentPinInput && this.familyConfig.parentPin) {
+      parentPinInput.value = this.familyConfig.parentPin;
+    }
+    if (childPinInput && this.familyConfig.childPin) {
+      childPinInput.value = this.familyConfig.childPin;
+    }
+    if (familyStatusPill) {
+      if (this.familyConfig.activePin) {
+        familyStatusPill.textContent = `☁️ Rodinný cloud aktivní (${this.isParentMode() ? 'Rodič' : 'Theuška'})`;
+        familyStatusPill.className = 'status-pill live';
+      } else {
+        familyStatusPill.textContent = 'Zatím neuloženo do cloudu';
+        familyStatusPill.className = 'status-pill demo';
+      }
+    }
 
     if (urlInput && !urlInput.value && this.api.auth.schoolUrl) {
       urlInput.value = this.api.normalizeSchoolUrl(this.api.auth.schoolUrl);
@@ -1009,7 +1276,7 @@ class SkolniPartakApp {
     const soundInput = document.getElementById('setting-sound-enabled');
     const reqCheckInput = document.getElementById('setting-require-ticks');
 
-    if (nameInput) nameInput.value = this.notifier.settings.studentName || 'Eliško';
+    if (nameInput) nameInput.value = this.notifier.settings.studentName || 'Theuško';
     if (morningInput) morningInput.value = this.notifier.settings.morningTime || '07:00';
     if (hwInput) hwInput.value = this.notifier.settings.homeworkTime || '17:00';
     if (eveningInput) eveningInput.value = this.notifier.settings.eveningTime || '19:30';
@@ -1058,9 +1325,10 @@ class SkolniPartakApp {
   deleteClub(clubId) {
     this.clubs = this.clubs.filter((c) => c.id !== clubId);
     window.BakalariPWA.saveCustomClubs(this.clubs);
+    this.pushFamilySync();
     this.renderTimetableSection();
     this.renderDashboard();
-    this.showToast('Kroužek byl odebrán z rozvrhu.');
+    this.showToast('Kroužek byl odebrán z rozvrhu a synchronizován.');
   }
 
   /* ========================================================================
@@ -1077,6 +1345,12 @@ class SkolniPartakApp {
   }
 
   switchTab(tabId) {
+    // Protect Parent Settings and Komens when in Child Mode (Theuška)
+    if (!this.isParentMode() && (tabId === 'settings' || tabId === 'parent-komens')) {
+      this.openPinConnectModal('Pro vstup do rodičovského nastavení zadejte Rodičovský PIN:');
+      return;
+    }
+
     this.activeTab = tabId;
     document.querySelectorAll('[data-nav-tab]').forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-nav-tab') === tabId);
@@ -1087,12 +1361,196 @@ class SkolniPartakApp {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  openPinConnectModal(customNotice = '') {
+    const dialog = document.getElementById('pin-connect-dialog');
+    if (!dialog) return;
+    const codeInput = document.getElementById('pin-connect-code');
+    const workerInput = document.getElementById('pin-connect-worker');
+    const errBox = document.getElementById('pin-connect-error');
+
+    if (codeInput) codeInput.value = '';
+    if (workerInput && this.familyConfig.workerUrl) {
+      workerInput.value = this.familyConfig.workerUrl;
+    }
+    if (errBox) {
+      if (customNotice) {
+        errBox.hidden = false;
+        errBox.className = 'login-result-box pending';
+        errBox.textContent = customNotice;
+      } else {
+        errBox.hidden = true;
+      }
+    }
+    dialog.showModal();
+  }
+
   bindGlobalActions() {
     // Refresh data button
     const refreshBtn = document.getElementById('btn-refresh-data');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', () => {
-        this.refreshData().then(() => this.showToast('Rozvrh, známky a úkoly byly aktualizovány.'));
+        this.refreshData().then(() => this.showToast('Data z Bakalářů i rodinného cloudu byla aktualizována.'));
+      });
+    }
+
+    // Header PIN Connect button
+    const openPinBtn = document.getElementById('btn-open-pin-modal');
+    if (openPinBtn) {
+      openPinBtn.addEventListener('click', () => this.openPinConnectModal());
+    }
+
+    const cancelPinBtn = document.getElementById('btn-cancel-pin-modal');
+    if (cancelPinBtn) {
+      cancelPinBtn.addEventListener('click', () => {
+        document.getElementById('pin-connect-dialog')?.close();
+      });
+    }
+
+    // Submit PIN Connect Form (for Wife's phone, Theuška's phone, or switching roles)
+    const pinForm = document.getElementById('pin-connect-form');
+    if (pinForm) {
+      pinForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const pin = document.getElementById('pin-connect-code').value.trim();
+        const workerUrl = document.getElementById('pin-connect-worker').value.trim();
+        const errBox = document.getElementById('pin-connect-error');
+        const submitBtn = document.getElementById('btn-submit-pin-connect');
+
+        // Also allow local switching if parentPin/childPin are saved locally on this device
+        if (this.familyConfig.parentPin && pin === this.familyConfig.parentPin && !workerUrl) {
+          this.saveFamilyConfig({ role: 'parent', activePin: pin });
+          document.getElementById('pin-connect-dialog')?.close();
+          await this.refreshData();
+          this.showToast('👨‍👩‍👧 Přepnuto do Rodičovského režimu.');
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Ověřuji PIN v cloudu...';
+        if (errBox) errBox.hidden = true;
+
+        try {
+          const res = await this.api.connectWithFamilyPin(workerUrl, pin);
+          this.saveFamilyConfig({
+            role: res.role || 'child',
+            workerUrl,
+            activePin: pin
+          });
+          this.applyCloudState(res.state);
+          document.getElementById('pin-connect-dialog')?.close();
+          if (res.role === 'child' && (this.activeTab === 'settings' || this.activeTab === 'parent-komens')) {
+            this.switchTab('dashboard');
+          }
+          await this.refreshData();
+          this.showToast(
+            res.role === 'parent'
+              ? '👨‍👩‍👧 Úspěšně přihlášeno v Rodičovském režimu (včetně zpráv Komens a správy kroužků)!'
+              : '👧 Úspěšně přihlášeno v režimu Theušky!'
+          );
+        } catch (err) {
+          // Fallback: if local parentPin / childPin match on this device
+          if (this.familyConfig.parentPin && pin === this.familyConfig.parentPin) {
+            this.saveFamilyConfig({ role: 'parent', activePin: pin });
+            document.getElementById('pin-connect-dialog')?.close();
+            await this.refreshData();
+            this.showToast('👨‍👩‍👧 Odemčeno lokálním Rodičovským PINem.');
+          } else if (this.familyConfig.childPin && pin === this.familyConfig.childPin) {
+            this.saveFamilyConfig({ role: 'child', activePin: pin });
+            document.getElementById('pin-connect-dialog')?.close();
+            this.switchTab('dashboard');
+            await this.refreshData();
+            this.showToast('👧 Přepnuto do režimu Theušky.');
+          } else if (errBox) {
+            errBox.hidden = false;
+            errBox.className = 'login-result-box error';
+            errBox.textContent = `❌ ${err.message}`;
+          }
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '🔑 Ověřit PIN a připojit';
+        }
+      });
+    }
+
+    // Family Setup Form (Father saves Parent PIN, Child PIN & Bakaláři Auth to Cloudflare Worker)
+    const familySetupForm = document.getElementById('family-setup-form');
+    if (familySetupForm) {
+      familySetupForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const workerUrl = document.getElementById('family-worker-url').value.trim();
+        const parentPin = document.getElementById('family-parent-pin').value.trim();
+        const childPin = document.getElementById('family-child-pin').value.trim();
+        const resultEl = document.getElementById('family-setup-result');
+        const saveBtn = document.getElementById('btn-save-family-cloud');
+
+        if (parentPin === childPin) {
+          this.showToast('Rodičovský PIN a Dětský PIN musí být odlišné!', 'error');
+          return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Ukládám do Cloudflare...';
+
+        try {
+          await this.api.setupFamilyCloud(workerUrl, parentPin, childPin, {
+            currentParentPin: this.familyConfig.parentPin || parentPin,
+            bakalariAuth: this.api.auth,
+            clubs: this.clubs,
+            customHomeworks: this.customHomeworks,
+            hwDoneMap: this.hwDoneMap,
+            confirmations: this.notifier.confirmations,
+            settings: this.notifier.settings
+          });
+
+          this.saveFamilyConfig({
+            role: 'parent',
+            workerUrl,
+            activePin: parentPin,
+            parentPin,
+            childPin
+          });
+
+          if (resultEl) {
+            resultEl.hidden = false;
+            resultEl.className = 'login-result-box success';
+            resultEl.innerHTML = `
+              ✅ <strong>Rodinná synchronizace je aktivní!</strong><br>
+              • Na telefonu manželky klikněte nahoře na <strong>„🔑 Zadat PIN“</strong> a zadejte Rodičovský PIN: <code>${window.escapeHtml(parentPin)}</code><br>
+              • Na telefonu Theušky klikněte nahoře na <strong>„🔑 Zadat PIN“</strong> a zadejte Dětský PIN: <code>${window.escapeHtml(childPin)}</code>
+            `;
+          }
+          this.renderSettingsSection();
+          this.renderHeaderStatus();
+          this.showToast('☁️ Rodinný profil a PINy byly uloženy do Cloudflare!');
+        } catch (err) {
+          if (resultEl) {
+            resultEl.hidden = false;
+            resultEl.className = 'login-result-box error';
+            resultEl.textContent = `❌ ${err.message} (Ujistěte se, že jste do Cloudflare Workeru vložil nový kód souboru cloudflare-worker-proxy.js).`;
+          }
+          this.showToast(err.message, 'error');
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = '☁️ Uložit rodinný profil a aktivovat PINy v Cloudflare';
+        }
+      });
+    }
+
+    // Quick switch to Child Mode button
+    const switchChildBtn = document.getElementById('btn-switch-to-child-preview');
+    if (switchChildBtn) {
+      switchChildBtn.addEventListener('click', () => {
+        const childPin = document.getElementById('family-child-pin')?.value.trim() || this.familyConfig.childPin || '5555';
+        const parentPin = document.getElementById('family-parent-pin')?.value.trim() || this.familyConfig.parentPin || '1234';
+        this.saveFamilyConfig({
+          role: 'child',
+          activePin: childPin,
+          parentPin,
+          childPin
+        });
+        this.switchTab('dashboard');
+        this.renderAll();
+        this.showToast(`👧 Přepnuto do režimu Theušky! Pro návrat do rodičovského režimu klikněte nahoře na „🔑 Přepnout PIN“ (PIN: ${parentPin}).`);
       });
     }
 
@@ -1149,11 +1607,12 @@ class SkolniPartakApp {
         }
 
         window.BakalariPWA.saveCustomClubs(this.clubs);
+        this.pushFamilySync();
         this.selectedDayOfWeek = newClub.dayOfWeek;
         document.getElementById('club-editor-dialog').close();
         this.renderTimetableSection();
         this.renderDashboard();
-        this.showToast(`Kroužek „${newClub.name}“ byl uložen do rozvrhu!`);
+        this.showToast(`Kroužek „${newClub.name}“ byl uložen a synchronizován pro Theušku!`);
       });
     }
 
@@ -1214,6 +1673,7 @@ class SkolniPartakApp {
           isDone: false
         });
         this.saveCustomHomeworks();
+        this.pushFamilySync();
         hwDialog.close();
         this.renderHomeworksSection();
         this.renderDashboard();
@@ -1284,6 +1744,7 @@ class SkolniPartakApp {
           await this.api.login(url, user, pass, proxy);
           document.getElementById('input-baka-pass').value = '';
           await this.refreshData();
+          this.pushFamilySync();
           if (resultBoxEl) {
             resultBoxEl.hidden = false;
             resultBoxEl.className = 'login-result-box success';
@@ -1310,13 +1771,14 @@ class SkolniPartakApp {
       notifForm.addEventListener('submit', (e) => {
         e.preventDefault();
         this.notifier.saveSettings({
-          studentName: document.getElementById('setting-student-name').value.trim() || 'Eliško',
+          studentName: document.getElementById('setting-student-name').value.trim() || 'Theuško',
           morningTime: document.getElementById('setting-morning-time').value || '07:00',
           homeworkTime: document.getElementById('setting-homework-time').value || '17:00',
           eveningTime: document.getElementById('setting-evening-time').value || '19:30',
           soundEnabled: document.getElementById('setting-sound-enabled').checked,
           requireChecklistTicks: document.getElementById('setting-require-ticks').checked
         });
+        this.pushFamilySync();
         this.renderAll();
         this.showToast('⚙️ Nastavení časů upozornění bylo uloženo!');
       });

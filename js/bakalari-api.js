@@ -5,10 +5,14 @@
 
 const STORAGE_KEYS = {
   AUTH: 'bakalari_pwa_auth_v1',
+  FAMILY_SYNC: 'bakalari_pwa_family_v1',
   CACHE_USER: 'bakalari_pwa_user_v1',
   CACHE_TIMETABLE: 'bakalari_pwa_timetable_v1',
   CACHE_MARKS: 'bakalari_pwa_marks_v1',
   CACHE_HOMEWORKS: 'bakalari_pwa_homeworks_v1',
+  CACHE_KOMENS: 'bakalari_pwa_komens_v1',
+  CACHE_ABSENCE: 'bakalari_pwa_absence_v1',
+  CACHE_EVENTS: 'bakalari_pwa_events_v1',
   CUSTOM_CLUBS: 'bakalari_pwa_clubs_v1',
   CUSTOM_HOMEWORKS: 'bakalari_pwa_custom_hw_v1',
   HW_DONE_MAP: 'bakalari_pwa_hw_done_v1',
@@ -340,25 +344,117 @@ class BakalariApiClient {
   }
 
   /* ========================================================================
+     RODINNÁ SYNCHRONIZACE PŘES CLOUDFLARE WORKER (PINy & SDÍLENÁ DATA)
+     ======================================================================== */
+
+  normalizeWorkerBaseUrl(workerUrl) {
+    let url = (workerUrl || 'https://mute-cloud-b42b.radek-bunda.workers.dev').trim();
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    url = url.replace(/\/+$/, '').replace(/\?.*$/, '');
+    return url;
+  }
+
+  async setupFamilyCloud(workerUrl, parentPin, childPin, statePayload) {
+    const base = this.normalizeWorkerBaseUrl(workerUrl);
+    const resp = await this.fetchWithTimeout(
+      `${base}/family/setup`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parentPin,
+          childPin,
+          ...statePayload
+        })
+      },
+      10000
+    );
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || `Chyba uložení rodinného profilu (HTTP ${resp.status})`);
+    }
+    return data;
+  }
+
+  async connectWithFamilyPin(workerUrl, pin) {
+    const base = this.normalizeWorkerBaseUrl(workerUrl);
+    const resp = await this.fetchWithTimeout(
+      `${base}/family/connect`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      },
+      10000
+    );
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || `Neplatný PIN nebo chyba spojení (HTTP ${resp.status})`);
+    }
+    return data;
+  }
+
+  async syncFamilyState(workerUrl, pin, partialPayload = {}) {
+    const base = this.normalizeWorkerBaseUrl(workerUrl);
+    const resp = await this.fetchWithTimeout(
+      `${base}/family/sync`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin, ...partialPayload })
+      },
+      9000
+    );
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || `Chyba synchronizace (HTTP ${resp.status})`);
+    }
+    return data;
+  }
+
+  /* ========================================================================
      HIGH-LEVEL DATA METHODS (Live API + Offline Cache + Demo Mode)
      ======================================================================== */
 
-  async fetchAllSchoolData(targetDate = new Date()) {
+  async fetchAllSchoolData(targetDate = new Date(), isParentMode = false) {
     const dateIso = formatDateIso(targetDate);
 
     if (this.isLiveMode()) {
       try {
-        const [user, timetable, marks, homeworks] = await Promise.all([
+        const basePromises = [
           this.apiRequest('/api/3/user').catch(() => this.getCached(STORAGE_KEYS.CACHE_USER)),
           this.apiRequest(`/api/3/timetable/actual?date=${dateIso}`),
           this.apiRequest('/api/3/marks'),
           this.apiRequest('/api/3/homeworks')
-        ]);
+        ];
+
+        // IMPORTANT: Only fetch Komens, Noticeboard, Absence & Events when in Parent Mode!
+        // In Child Mode (Theuška), we do NOT touch /api/3/komens so messages stay unread for parents.
+        if (isParentMode) {
+          basePromises.push(
+            this.apiRequest('/api/3/komens/messages/received', { method: 'POST' }).catch(() => ({ Messages: [] })),
+            this.apiRequest('/api/3/komens/messages/noticeboard', { method: 'POST' }).catch(() => ({ Messages: [] })),
+            this.apiRequest('/api/3/absence/student').catch(() => null),
+            this.apiRequest('/api/3/events').catch(() => ({ Events: [] }))
+          );
+        }
+
+        const [user, timetable, marks, homeworks, komensReceived, komensNoticeboard, absence, events] = await Promise.all(basePromises);
 
         if (user) this.setCached(STORAGE_KEYS.CACHE_USER, user);
         if (timetable) this.setCached(STORAGE_KEYS.CACHE_TIMETABLE, timetable);
         if (marks) this.setCached(STORAGE_KEYS.CACHE_MARKS, marks);
         if (homeworks) this.setCached(STORAGE_KEYS.CACHE_HOMEWORKS, homeworks);
+        if (isParentMode) {
+          if (komensReceived || komensNoticeboard) {
+            this.setCached(STORAGE_KEYS.CACHE_KOMENS, {
+              received: komensReceived?.Messages || [],
+              noticeboard: komensNoticeboard?.Messages || []
+            });
+          }
+          if (absence) this.setCached(STORAGE_KEYS.CACHE_ABSENCE, absence);
+          if (events) this.setCached(STORAGE_KEYS.CACHE_EVENTS, events);
+        }
 
         return {
           isDemo: false,
@@ -366,7 +462,13 @@ class BakalariApiClient {
           user: user || { FullName: this.auth.username, Class: { Abbrev: 'ZŠ' }, SchoolOrganizationName: 'Základní škola' },
           timetable,
           marks,
-          homeworks
+          homeworks,
+          komens: isParentMode ? {
+            received: komensReceived?.Messages || [],
+            noticeboard: komensNoticeboard?.Messages || []
+          } : null,
+          absence: isParentMode ? absence : null,
+          events: isParentMode ? (events?.Events || []) : null
         };
       } catch (err) {
         console.warn('Nepodařilo se načíst živá data z Bakalářů, používám offline mezipaměť:', err);
@@ -381,7 +483,10 @@ class BakalariApiClient {
             user: this.getCached(STORAGE_KEYS.CACHE_USER) || { FullName: this.auth.username },
             timetable: cachedTimetable,
             marks: cachedMarks,
-            homeworks: cachedHomeworks || { Homeworks: [] }
+            homeworks: cachedHomeworks || { Homeworks: [] },
+            komens: isParentMode ? (this.getCached(STORAGE_KEYS.CACHE_KOMENS) || { received: [], noticeboard: [] }) : null,
+            absence: isParentMode ? this.getCached(STORAGE_KEYS.CACHE_ABSENCE) : null,
+            events: isParentMode ? (this.getCached(STORAGE_KEYS.CACHE_EVENTS)?.Events || []) : null
           };
         }
         throw err;
@@ -389,7 +494,7 @@ class BakalariApiClient {
     }
 
     // Demo Mode: realistic Czech elementary school dataset anchored to targetDate's week
-    return this.getDemoSchoolData(targetDate);
+    return this.getDemoSchoolData(targetDate, isParentMode);
   }
 
   async fetchTimetableForDate(targetDate) {
@@ -419,7 +524,7 @@ class BakalariApiClient {
   /* ========================================================================
      DEMO DATA GENERATOR (Realistic Bakaláři API v3 structures for ZŠ)
      ======================================================================== */
-  getDemoSchoolData(referenceDate = new Date()) {
+  getDemoSchoolData(referenceDate = new Date(), isParentMode = false) {
     const monday = getMondayOfWeek(referenceDate);
     const today = new Date();
     const tomorrow = getNextSchoolDay(today);
@@ -685,14 +790,62 @@ class BakalariApiClient {
       ]
     };
 
+    const demoKomens = {
+      received: [
+        {
+          Id: 'MSG_1',
+          Title: 'Informace k třídním schůzkám a podzimnímu projektu',
+          Text: 'Vážení rodiče, zveme vás na třídní schůzky, které se konají příští čtvrtek od 17:00 v kmenové učebně. Zároveň děkujeme za přípravu pomůcek na podzimní projektové dny.',
+          SentDate: formatDateIso(today) + 'T11:20:00+02:00',
+          Sender: { Name: 'Mgr. Jana Nováková (třídní učitelka)' },
+          Read: false
+        },
+        {
+          Id: 'MSG_2',
+          Title: 'Pochvala za aktivitu v hodině angličtiny',
+          Text: 'Dobrý den, chci pochválit Theušku za výbornou přípravu slovíček a aktivní zapojení do konverzace v dnešní hodině anglického jazyka.',
+          SentDate: formatDateIso(today) + 'T09:45:00+02:00',
+          Sender: { Name: 'Mgr. Lucie Dvořáková' },
+          Read: true
+        }
+      ],
+      noticeboard: [
+        {
+          Id: 'NB_1',
+          Title: 'Sběr starého papíru a podzimní prázdniny',
+          Text: 'Připomínáme, že příští týden probíhá tradiční podzimní sběr papíru vždy od 7:15 do 7:50 u bočního vchodu školy.',
+          SentDate: formatDateIso(today) + 'T08:00:00+02:00',
+          Sender: { Name: 'Vedení ZŠ Velké Březno' }
+        }
+      ]
+    };
+
+    const demoAbsence = {
+      Absences: [
+        {
+          Date: '2026-10-08T00:00:00+02:00',
+          Unsolved: 0,
+          Ok: 2,
+          Missed: 0,
+          Late: 0,
+          Soon: 0,
+          School: 0
+        }
+      ],
+      AbsencesPerSubject: [
+        { SubjectName: 'Český jazyk a literatura', LessonsCount: 24, Base: 1, Late: 0, Soon: 0, School: 0 },
+        { SubjectName: 'Matematika', LessonsCount: 24, Base: 1, Late: 0, Soon: 0, School: 0 }
+      ]
+    };
+
     return {
       isDemo: true,
       isOfflineFallback: false,
       user: {
-        FullName: 'Eliška (6.A)',
-        UserType: 'student',
-        Class: { Id: '6A', Abbrev: '6.A', Name: '6. A' },
-        SchoolOrganizationName: 'Základní škola (Ukázkový režim)'
+        FullName: 'Theuška',
+        UserType: isParentMode ? 'parents' : 'student',
+        Class: { Id: '6A', Abbrev: 'ZŠ', Name: 'Základní škola' },
+        SchoolOrganizationName: 'ZŠ Velké Březno (Ukázkový režim)'
       },
       timetable: {
         Hours: hours,
@@ -700,11 +853,16 @@ class BakalariApiClient {
         Subjects: subjects,
         Teachers: teachers,
         Rooms: rooms,
-        Classes: [{ Id: '6A', Abbrev: '6.A', Name: '6. A' }],
+        Classes: [{ Id: '6A', Abbrev: 'ZŠ', Name: 'Základní škola' }],
         Groups: []
       },
       marks: marksData,
-      homeworks: homeworksData
+      homeworks: homeworksData,
+      komens: isParentMode ? demoKomens : null,
+      absence: isParentMode ? demoAbsence : null,
+      events: isParentMode ? [
+        { Title: 'Třídní schůzky (17:00)', Description: 'Kmenová učebna', StartTime: tomorrowIso + 'T17:00:00' }
+      ] : null
     };
   }
 }

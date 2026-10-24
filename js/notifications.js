@@ -28,7 +28,7 @@ class SchoolNotificationManager {
 
   getDefaultSettings() {
     return {
-      studentName: 'Eliško',
+      studentName: 'Theuško',
       morningTime: '07:00',
       homeworkTime: '17:00',
       eveningTime: '19:30',
@@ -79,8 +79,13 @@ class SchoolNotificationManager {
     this.saveConfirmations();
     this.stopReminderSoundLoop();
 
-    if (this.app && typeof this.app.renderConfirmationStatusBanner === 'function') {
-      this.app.renderConfirmationStatusBanner();
+    if (this.app) {
+      if (typeof this.app.renderConfirmationStatusBanner === 'function') {
+        this.app.renderConfirmationStatusBanner();
+      }
+      if (typeof this.app.pushFamilySync === 'function') {
+        this.app.pushFamilySync();
+      }
     }
   }
 
@@ -137,6 +142,11 @@ class SchoolNotificationManager {
    * 3. Evening preparation (every evening before a workday, window 19:30 - 23:00)
    */
   evaluateScheduledAlerts() {
+    // Automatic blocking popups only run on the daughter's phone (Child mode)
+    if (this.app && typeof this.app.isParentMode === 'function' && this.app.isParentMode()) {
+      return;
+    }
+
     const now = new Date();
     const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon ... 5 = Fri, 6 = Sat
     const isWorkday = dayOfWeek >= 1 && dayOfWeek <= 5;
