@@ -291,8 +291,8 @@
           <form id="bakalari-login-form" class="settings-form">
             <div class="form-group">
               <label for="input-baka-url">URL adresa školních Bakalářů:</label>
-              <input type="url" id="input-baka-url" class="form-input" placeholder="https://bakalari.zs-vase-skola.cz" required>
-              <small class="form-hint">Adresa, na které se přihlašujete do webových Bakalářů školy.</small>
+              <input type="text" id="input-baka-url" class="form-input" placeholder="https://zs-vb.bakalari.cz:5010" value="https://zs-vb.bakalari.cz:5010" required>
+              <small class="form-hint">Pozor: před číslem portu musí být dvojtečka <code>:5010</code> (nikoli lomítko <code>/5010</code>).</small>
             </div>
 
             <div class="form-row-2">
@@ -307,15 +307,27 @@
             </div>
 
             <div class="form-group">
-              <label for="input-baka-proxy">Volitelná CORS Proxy URL (pokud škola blokuje přímé dotazy z prohlížeče):</label>
-              <input type="text" id="input-baka-proxy" class="form-input" placeholder="např. http://localhost:3000 (přiložený proxy-server.js)">
-              <small class="form-hint">Pokud spouštíte aplikaci přes přiložený <code>node proxy-server.js</code>, vyplňte <code>http://localhost:3000</code>.</small>
+              <label for="input-baka-proxy">Volitelná CORS Proxy URL (můžete nechat prázdné, zkouší se nejprve přímé spojení):</label>
+              <input type="text" id="input-baka-proxy" class="form-input" placeholder="např. https://mute-cloud-b42b.radek-bunda.workers.dev">
+              <small class="form-hint">Aplikace nejprve vyzkouší rychlé přímé spojení se školou a teprve v případě blokace použije proxy.</small>
             </div>
 
             <button type="submit" id="btn-submit-baka-login" class="btn-primary full-width">
               Připojit k Bakalářům API v3
             </button>
           </form>
+
+          <!-- Trvalé zobrazení výsledku / chyby (nezmizí samo) -->
+          <div id="baka-login-result-box" class="login-result-box" hidden></div>
+
+          <!-- Živý diagnostický log -->
+          <div class="diag-log-wrapper">
+            <div class="diag-log-header">
+              <strong>📋 Diagnostický výpis připojení (krok za krokem):</strong>
+              <button type="button" id="btn-copy-diag-log" class="btn-link-mini">Zkopírovat výpis</button>
+            </div>
+            <pre id="baka-diagnostic-log" class="diag-log-pre" tabindex="0">Zatím neproběhl žádný pokus o přihlášení. Klikněte na „Připojit k Bakalářům API v3“.</pre>
+          </div>
         </article>
 
       </div>
@@ -325,7 +337,7 @@
   <!-- ==================== FOOTER ==================== -->
   <footer class="app-footer">
     <p>Školní parťák – PWA pro základní školu • Postaveno na <a href="https://github.com/bakalari-api/bakalari-api-v3" target="_blank" rel="noopener noreferrer">Bakaláři API v3</a></p>
-    <p class="app-version-tag">Verze: <strong>v1.0.3</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
+    <p class="app-version-tag">Verze: <strong>v1.0.4</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
   </footer>
 
   <!-- ==========================================================================

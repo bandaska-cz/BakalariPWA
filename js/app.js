@@ -970,7 +970,9 @@ class SkolniPartakApp {
     const proxyInput = document.getElementById('input-baka-proxy');
     const connStateEl = document.getElementById('baka-connection-status');
 
-    if (urlInput && !urlInput.value) urlInput.value = this.api.auth.schoolUrl || '';
+    if (urlInput && !urlInput.value && this.api.auth.schoolUrl) {
+      urlInput.value = this.api.normalizeSchoolUrl(this.api.auth.schoolUrl);
+    }
     if (userInput && !userInput.value) userInput.value = this.api.auth.username || '';
     if (proxyInput && !proxyInput.value) proxyInput.value = this.api.auth.proxyUrl || '';
 
@@ -1229,16 +1231,51 @@ class SkolniPartakApp {
       });
     }
 
+    // Wire up live diagnostic logger from API client
+    const diagLogEl = document.getElementById('baka-diagnostic-log');
+    const resultBoxEl = document.getElementById('baka-login-result-box');
+
+    this.api.onLogUpdate = (logs) => {
+      if (!diagLogEl) return;
+      if (!logs || logs.length === 0) {
+        diagLogEl.textContent = 'Spouštím diagnostiku připojení...';
+        return;
+      }
+      diagLogEl.textContent = logs
+        .map((l) => `[${l.time}] ${l.type === 'error' ? '❌' : l.type === 'warn' ? '⚠️' : l.type === 'success' ? '✅' : 'ℹ️'} ${l.message}`)
+        .join('\n');
+      diagLogEl.scrollTop = diagLogEl.scrollHeight;
+    };
+
+    const copyLogBtn = document.getElementById('btn-copy-diag-log');
+    if (copyLogBtn && diagLogEl) {
+      copyLogBtn.addEventListener('click', () => {
+        navigator.clipboard?.writeText(diagLogEl.textContent || '');
+        this.showToast('📋 Diagnostický výpis byl zkopírován do schránky.');
+      });
+    }
+
     // Bakaláři Login Form
     const loginForm = document.getElementById('bakalari-login-form');
     if (loginForm) {
       loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const url = document.getElementById('input-baka-url').value;
+        const urlInput = document.getElementById('input-baka-url');
+        const url = urlInput.value;
         const user = document.getElementById('input-baka-user').value;
         const pass = document.getElementById('input-baka-pass').value;
         const proxy = document.getElementById('input-baka-proxy').value;
         const submitBtn = document.getElementById('btn-submit-baka-login');
+
+        // Auto-normalize URL visibly in the input box (e.g. /5010 -> :5010)
+        const normalized = this.api.normalizeSchoolUrl(url);
+        if (normalized) urlInput.value = normalized;
+
+        if (resultBoxEl) {
+          resultBoxEl.hidden = false;
+          resultBoxEl.className = 'login-result-box pending';
+          resultBoxEl.textContent = '⏳ Probíhá přihlašování a ověřování komunikace se školou... Sledujte výpis níže.';
+        }
 
         submitBtn.disabled = true;
         submitBtn.textContent = 'Přihlašuji k Bakalářům...';
@@ -1247,8 +1284,18 @@ class SkolniPartakApp {
           await this.api.login(url, user, pass, proxy);
           document.getElementById('input-baka-pass').value = '';
           await this.refreshData();
+          if (resultBoxEl) {
+            resultBoxEl.hidden = false;
+            resultBoxEl.className = 'login-result-box success';
+            resultBoxEl.textContent = `✅ Úspěšně připojeno ke školnímu systému Bakaláři (${this.api.auth.schoolUrl})! Rozvrh, známky i úkoly byly načteny.`;
+          }
           this.showToast('✅ Úspěšně připojeno ke školnímu systému Bakaláři!');
         } catch (err) {
+          if (resultBoxEl) {
+            resultBoxEl.hidden = false;
+            resultBoxEl.className = 'login-result-box error';
+            resultBoxEl.textContent = `❌ Chyba přihlášení: ${err.message}`;
+          }
           this.showToast(err.message, 'error');
         } finally {
           submitBtn.disabled = false;

@@ -19,6 +19,25 @@ const STORAGE_KEYS = {
 class BakalariApiClient {
   constructor() {
     this.auth = this.loadAuth();
+    this.logs = [];
+    this.onLogUpdate = null;
+  }
+
+  log(message, type = 'info') {
+    const time = new Date().toLocaleTimeString('cs-CZ', { hour12: false });
+    const entry = { time, message, type };
+    this.logs.push(entry);
+    console.log(`[Bakaláři API ${time}] ${message}`);
+    if (typeof this.onLogUpdate === 'function') {
+      this.onLogUpdate(this.logs);
+    }
+  }
+
+  clearLogs() {
+    this.logs = [];
+    if (typeof this.onLogUpdate === 'function') {
+      this.onLogUpdate(this.logs);
+    }
   }
 
   loadAuth() {
@@ -72,6 +91,8 @@ class BakalariApiClient {
       url = 'https://' + url;
     }
     url = url.replace(/\/+$/, '');
+    // Auto-fix accidental slash before port number, e.g. "https://zs-vb.bakalari.cz/5010" -> "https://zs-vb.bakalari.cz:5010"
+    url = url.replace(/^(https?:\/\/[^\/:]+)\/(\d{2,5})(\/.*)?$/i, '$1:$2$3');
     url = url.replace(/\/dashboard(\/.*)?$/i, '');
     url = url.replace(/\/next(\/.*)?$/i, '');
     url = url.replace(/\/api\/3(\/.*)?$/i, '');
@@ -100,15 +121,32 @@ class BakalariApiClient {
     return `${cleanProxy.replace(/\/+$/, '')}/proxy?url=${encodeURIComponent(targetUrl)}`;
   }
 
+  async fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /**
    * Authenticate against Bakaláři API (/api/login or /api/3/login)
-   * POST Content-Type: application/x-www-form-urlencoded
-   * Body: client_id=ANDR&grant_type=password&username=...&password=...
+   * Tries direct connection FIRST (many Bakaláři servers support CORS natively),
+   * then falls back to proxyUrl if provided.
    */
   async login(schoolUrl, username, password, proxyUrl = '') {
-    let normalizedUrl = this.normalizeSchoolUrl(schoolUrl);
+    this.clearLogs();
+    const normalizedUrl = this.normalizeSchoolUrl(schoolUrl);
     if (!normalizedUrl) {
       throw new Error('Zadejte prosím platnou URL adresu školních Bakalářů.');
+    }
+
+    if (normalizedUrl !== schoolUrl.trim()) {
+      this.log(`Upravena URL školy z "${schoolUrl.trim()}" na "${normalizedUrl}"`, 'info');
+    } else {
+      this.log(`Cílová adresa školy: ${normalizedUrl}`, 'info');
     }
 
     const bodyParams = new URLSearchParams({
@@ -117,6 +155,12 @@ class BakalariApiClient {
       username: username.trim(),
       password: password
     });
+
+    // Try direct connection first (fast & avoids Cloudflare port 5010 timeout), then via proxy if configured
+    const proxyModes = [''];
+    if (proxyUrl && proxyUrl.trim()) {
+      proxyModes.push(proxyUrl.trim());
+    }
 
     const candidatePaths = ['/api/login', '/api/3/login'];
     const candidateBases = [normalizedUrl];
@@ -127,60 +171,79 @@ class BakalariApiClient {
     let lastResult = null;
     let lastError = null;
 
-    for (const base of candidateBases) {
-      for (const p of candidatePaths) {
-        try {
-          const endpoint = this.buildEndpointUrl(base, p, proxyUrl);
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'Accept': 'application/json'
-            },
-            body: bodyParams.toString()
-          });
+    for (const activeProxy of proxyModes) {
+      const modeName = activeProxy ? `Přes proxy (${activeProxy})` : 'Přímé spojení (bez proxy)';
+      this.log(`--- Zkouším režim: ${modeName} ---`, 'info');
 
-          // Check if response is valid JSON
-          const contentType = response.headers.get('content-type') || '';
-          const text = await response.text();
-          let data = null;
+      for (const base of candidateBases) {
+        for (const p of candidatePaths) {
+          const endpoint = this.buildEndpointUrl(base, p, activeProxy);
+          const startTime = Date.now();
+          this.log(`POST ${base}${p} ...`, 'info');
+
           try {
-            data = JSON.parse(text);
-          } catch (_) {}
+            const response = await this.fetchWithTimeout(
+              endpoint,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: bodyParams.toString()
+              },
+              9000
+            );
 
-          if (data && (response.ok || data.error || data.error_description)) {
-            lastResult = { response, data, base, loginPath: p };
-            break;
-          } else if (!response.ok) {
-            lastError = new Error(`Server vrátil HTTP ${response.status} na ${p}`);
+            const elapsed = Date.now() - startTime;
+            const text = await response.text();
+            let data = null;
+            try {
+              data = JSON.parse(text);
+            } catch (_) {}
+
+            if (data && (response.ok || data.error || data.error_description)) {
+              this.log(`Odpověď přijata za ${elapsed} ms (HTTP ${response.status} JSON)`, response.ok ? 'success' : 'warn');
+              lastResult = { response, data, base, loginPath: p, workingProxy: activeProxy };
+              break;
+            } else {
+              const snippet = text.replace(/\s+/g, ' ').slice(0, 80);
+              this.log(`Neplatná odpověď za ${elapsed} ms (HTTP ${response.status}): ${snippet}`, 'warn');
+              lastError = new Error(`HTTP ${response.status} na ${base}${p}`);
+            }
+          } catch (e) {
+            const elapsed = Date.now() - startTime;
+            const msg = e.name === 'AbortError' ? 'Časový limit vypršel (9 s)' : e.message;
+            this.log(`Chyba spojení za ${elapsed} ms: ${msg}`, 'error');
+            lastError = new Error(msg);
           }
-        } catch (e) {
-          lastError = e;
         }
+        if (lastResult) break;
       }
       if (lastResult) break;
     }
 
     if (!lastResult) {
-      throw new Error(
-        'Nepodařilo se spojit s API Bakalářů. Zkontrolujte prosím adresu školy a Cloudflare Worker proxy.' +
-        (lastError ? ` (${lastError.message})` : '')
-      );
+      const errMsg = `Nepodařilo se spojit s API Bakalářů na adrese ${normalizedUrl}. Poslední chyba: ${lastError ? lastError.message : 'Neznámá chyba'}`;
+      this.log(errMsg, 'error');
+      throw new Error(errMsg);
     }
 
-    const { response, data, base, loginPath } = lastResult;
+    const { response, data, base, loginPath, workingProxy } = lastResult;
 
     if (!response.ok || !data.access_token) {
       const errDesc = data.error_description || data.error || `Chyba přihlášení (HTTP ${response.status})`;
+      this.log(`Přihlášení zamítnuto serverem: ${errDesc}`, 'error');
       throw new Error(errDesc);
     }
+
+    this.log(`✅ Přihlášení úspěšné! Získán access_token (režim: ${workingProxy ? 'Proxy' : 'Přímé spojení'}).`, 'success');
 
     const expiresInSec = Number(data.expires_in) || 3600;
     this.saveAuth({
       mode: 'live',
       schoolUrl: base,
       loginPath: loginPath || '/api/login',
-      proxyUrl: proxyUrl.trim(),
+      proxyUrl: workingProxy,
       username: username.trim(),
       accessToken: data.access_token,
       refreshToken: data.refresh_token || '',
@@ -192,7 +255,6 @@ class BakalariApiClient {
 
   /**
    * Refresh token via POST /api/login or /api/3/login
-   * Body: client_id=ANDR&grant_type=refresh_token&refresh_token=...
    */
   async refreshAccessToken() {
     if (!this.auth.refreshToken || !this.auth.schoolUrl) {
@@ -207,14 +269,17 @@ class BakalariApiClient {
 
     const loginPath = this.auth.loginPath || '/api/login';
     const endpoint = this.buildEndpointUrl(this.auth.schoolUrl, loginPath, this.auth.proxyUrl);
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json'
+    const response = await this.fetchWithTimeout(
+      endpoint,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: bodyParams.toString()
       },
-      body: bodyParams.toString()
-    });
+      10000
+    );
 
     if (!response.ok) {
       throw new Error('Obnovení přihlášení selhalo, přihlaste se prosím znovu.');
@@ -244,26 +309,33 @@ class BakalariApiClient {
 
     const doFetch = async (token) => {
       const url = this.buildEndpointUrl(this.auth.schoolUrl, path, this.auth.proxyUrl);
-      return fetch(url, {
-        ...options,
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          ...(options.headers || {})
-        }
-      });
+      this.log(`GET ${path} ...`, 'info');
+      return this.fetchWithTimeout(
+        url,
+        {
+          ...options,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            ...(options.headers || {})
+          }
+        },
+        12000
+      );
     };
 
     let response = await doFetch(this.auth.accessToken);
     if (response.status === 401 && this.auth.refreshToken) {
+      this.log(`Token vypršel (401), obnovuji přes refresh_token...`, 'warn');
       const newToken = await this.refreshAccessToken();
       response = await doFetch(newToken);
     }
 
     if (!response.ok) {
+      this.log(`Chyba API: HTTP ${response.status} na ${path}`, 'error');
       throw new Error(`Bakaláři API chyba: HTTP ${response.status} na ${path}`);
     }
 
+    this.log(`Načteno ${path} (HTTP 200 OK)`, 'success');
     return response.json();
   }
 
