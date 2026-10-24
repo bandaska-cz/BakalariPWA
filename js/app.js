@@ -427,6 +427,13 @@ class SkolniPartakApp {
         modeBadgeEl.className = 'conn-status-dot live';
       }
     }
+
+    // Show/hide 1-click Notification Permission Banner on Dashboard (so Theuška can enable notifications without Parent Settings)
+    const dashNotifBanner = document.getElementById('dash-notif-permission-banner');
+    if (dashNotifBanner) {
+      const needsPermission = 'Notification' in window && Notification.permission !== 'granted';
+      dashNotifBanner.hidden = !needsPermission;
+    }
   }
 
   /**
@@ -1555,6 +1562,9 @@ class SkolniPartakApp {
           if (res.role === 'child' && (this.activeTab === 'settings' || this.activeTab === 'parent-komens')) {
             this.switchTab('dashboard');
           }
+          if (res.role === 'child' && 'Notification' in window && Notification.permission === 'default') {
+            this.notifier.requestPermission().then(() => this.renderHeaderStatus());
+          }
           await this.refreshData();
           this.showToast(
             res.role === 'parent'
@@ -1898,18 +1908,26 @@ class SkolniPartakApp {
       });
     }
 
-    // Request Browser Notification Permission button
+    // Request Browser Notification Permission button (Settings & Dashboard Banner)
+    const handleReqPermission = async () => {
+      const res = await this.notifier.requestPermission();
+      this.updateNotificationPermissionBadge();
+      this.renderHeaderStatus();
+      if (res === 'granted') {
+        this.showToast('🔔 Systémové vyskakovací notifikace byly povoleny!');
+      } else {
+        this.showToast('Notifikace nebyly povoleny v prohlížeči, vyskakovací okna v aplikaci však fungují vždy.', 'error');
+      }
+    };
+
     const reqPermBtn = document.getElementById('btn-request-notif-permission');
     if (reqPermBtn) {
-      reqPermBtn.addEventListener('click', async () => {
-        const res = await this.notifier.requestPermission();
-        this.updateNotificationPermissionBadge();
-        if (res === 'granted') {
-          this.showToast('🔔 Systémové vyskakovací notifikace byly povoleny!');
-        } else {
-          this.showToast('Notifikace nebyly povoleny v prohlížeči, vyskakovací okna v aplikaci však fungují vždy.', 'error');
-        }
-      });
+      reqPermBtn.addEventListener('click', handleReqPermission);
+    }
+
+    const dashEnableNotifsBtn = document.getElementById('btn-dash-enable-notifs');
+    if (dashEnableNotifsBtn) {
+      dashEnableNotifsBtn.addEventListener('click', handleReqPermission);
     }
 
     // Test Notification Buttons in Settings/Header

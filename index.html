@@ -98,6 +98,17 @@
 
     <!-- ==================== VIEW 1: DASHBOARD ==================== -->
     <section id="view-dashboard" class="app-view-section">
+      <!-- One-click Notification Permission Banner for Theuška's phone (auto-hides once granted) -->
+      <div id="dash-notif-permission-banner" class="dash-notif-banner" hidden>
+        <div class="dash-notif-banner-text">
+          <strong>🔔 Povol si upozornění na tomto telefonu</strong>
+          <p>Aby ti včas vyskočilo ranní připomenutí, kontrola úkolů v 17:00 a večerní příprava aktovky, klepni na tlačítko vedle a zvol „Povolit“.</p>
+        </div>
+        <button type="button" id="btn-dash-enable-notifs" class="btn-primary">
+          🔔 Povolit upozornění
+        </button>
+      </div>
+
       <div class="section-heading-row">
         <div>
           <h2>Povinné denní kontroly a potvrzení</h2>
@@ -417,7 +428,7 @@
   <!-- ==================== FOOTER ==================== -->
   <footer class="app-footer">
     <p>Školní parťák – PWA pro základní školu • Postaveno na <a href="https://github.com/bakalari-api/bakalari-api-v3" target="_blank" rel="noopener noreferrer">Bakaláři API v3</a></p>
-    <p class="app-version-tag">Verze: <strong>v1.1.3</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
+    <p class="app-version-tag">Verze: <strong>v1.1.4</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
   </footer>
 
   <!-- ==========================================================================
