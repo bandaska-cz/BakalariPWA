@@ -17,7 +17,8 @@ const STORAGE_KEYS = {
   CUSTOM_HOMEWORKS: 'bakalari_pwa_custom_hw_v1',
   HW_DONE_MAP: 'bakalari_pwa_hw_done_v1',
   SETTINGS: 'bakalari_pwa_settings_v1',
-  CONFIRMATIONS: 'bakalari_pwa_confirmations_v1'
+  CONFIRMATIONS: 'bakalari_pwa_confirmations_v1',
+  THEME: 'bakalari_pwa_theme_v1'
 };
 
 class BakalariApiClient {

@@ -3,7 +3,7 @@
    Offline caching & Persistent Notification Confirmation Handler
    ========================================================================== */
 
-const CACHE_NAME = 'skolni-partak-pwa-v10';
+const CACHE_NAME = 'skolni-partak-pwa-v11';
 const STATIC_ASSETS = [
   './',
   './index.html',

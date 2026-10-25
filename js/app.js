@@ -223,8 +223,151 @@ class SkolniPartakApp {
     localStorage.setItem(window.BakalariPWA.STORAGE_KEYS.HW_DONE_MAP, JSON.stringify(this.hwDoneMap));
   }
 
+  /* ========================================================================
+     THEME MANAGEMENT (System Default / Light / Dark)
+     ======================================================================== */
+
+  initTheme() {
+    const stored = localStorage.getItem(window.BakalariPWA.STORAGE_KEYS.THEME) || 'system';
+    this.currentTheme = ['system', 'light', 'dark'].includes(stored) ? stored : 'system';
+    this.applyTheme(this.currentTheme, false);
+
+    // Watch OS system preference changes for automatic switching when in 'system' mode
+    if (window.matchMedia) {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleSystemChange = () => {
+        if (this.currentTheme === 'system') {
+          this.applyTheme('system', false);
+        }
+      };
+      if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', handleSystemChange);
+      } else if (typeof mediaQuery.addListener === 'function') {
+        mediaQuery.addListener(handleSystemChange);
+      }
+    }
+
+    // Synchronize theme across multiple tabs via storage event
+    window.addEventListener('storage', (e) => {
+      if (e.key === window.BakalariPWA.STORAGE_KEYS.THEME) {
+        const newTheme = e.newValue || 'system';
+        if (['system', 'light', 'dark'].includes(newTheme) && newTheme !== this.currentTheme) {
+          this.currentTheme = newTheme;
+          this.applyTheme(newTheme, false);
+        }
+      }
+    });
+
+    // Theme toggle button in header
+    const toggleBtn = document.getElementById('btn-theme-toggle');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => this.cycleTheme());
+    }
+
+    // Radio inputs in Settings
+    const radioInputs = document.querySelectorAll('input[name="app-theme"]');
+    radioInputs.forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          this.setTheme(e.target.value);
+        }
+      });
+    });
+  }
+
+  setTheme(themeName, persist = true) {
+    if (!['system', 'light', 'dark'].includes(themeName)) {
+      themeName = 'system';
+    }
+    this.currentTheme = themeName;
+    if (persist) {
+      try {
+        localStorage.setItem(window.BakalariPWA.STORAGE_KEYS.THEME, themeName);
+      } catch (err) {
+        console.warn('Nelze uložit motiv do localStorage:', err);
+      }
+    }
+    this.applyTheme(themeName, persist);
+  }
+
+  cycleTheme() {
+    const cycle = {
+      system: 'light',
+      light: 'dark',
+      dark: 'system'
+    };
+    const nextTheme = cycle[this.currentTheme] || 'light';
+    this.setTheme(nextTheme, true);
+
+    const themeLabels = {
+      system: 'Podle systému',
+      light: 'Světlý režim',
+      dark: 'Tmavý režim'
+    };
+    this.showToast(`🎨 Motiv změněn: ${themeLabels[nextTheme]}`);
+  }
+
+  applyTheme(themeName, showToastFeedback = false) {
+    const root = document.documentElement;
+    const isSystemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const effectiveDark = themeName === 'dark' || (themeName === 'system' && isSystemDark);
+
+    // 1. Data-theme attribute on <html>
+    root.setAttribute('data-theme', themeName);
+
+    // 2. Class for fallbacks
+    if (effectiveDark) {
+      root.classList.add('dark-theme');
+    } else {
+      root.classList.remove('dark-theme');
+    }
+
+    // 3. Meta color-scheme tag
+    const metaColorScheme = document.querySelector('meta[name="color-scheme"]');
+    if (metaColorScheme) {
+      metaColorScheme.setAttribute('content', effectiveDark ? 'dark' : (themeName === 'light' ? 'light' : 'light dark'));
+    }
+
+    // 4. Update Header Toggle Button
+    const toggleBtn = document.getElementById('btn-theme-toggle');
+    const toggleIcon = document.getElementById('theme-toggle-icon');
+    if (toggleBtn && toggleIcon) {
+      if (themeName === 'system') {
+        toggleIcon.textContent = '💻';
+        toggleBtn.title = `Motiv: Podle systému (kliknutím přepnete na Světlý)`;
+        toggleBtn.setAttribute('aria-label', 'Motiv aplikace: Podle systému');
+      } else if (themeName === 'light') {
+        toggleIcon.textContent = '☀️';
+        toggleBtn.title = `Motiv: Světlý (kliknutím přepnete na Tmavý)`;
+        toggleBtn.setAttribute('aria-label', 'Motiv aplikace: Světlý režim');
+      } else {
+        toggleIcon.textContent = '🌙';
+        toggleBtn.title = `Motiv: Tmavý (kliknutím přepnete na Podle systému)`;
+        toggleBtn.setAttribute('aria-label', 'Motiv aplikace: Tmavý režim');
+      }
+    }
+
+    // 5. Sync Settings UI controls
+    this.syncThemeSettingsUI(isSystemDark);
+  }
+
+  syncThemeSettingsUI(isSystemDark = null) {
+    if (isSystemDark === null) {
+      isSystemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    const radio = document.querySelector(`input[name="app-theme"][value="${this.currentTheme}"]`);
+    if (radio) {
+      radio.checked = true;
+    }
+    const noteEl = document.getElementById('theme-system-status-note');
+    if (noteEl) {
+      noteEl.textContent = `Automaticky podle zařízení (aktuálně: ${isSystemDark ? 'tmavý 🌙' : 'světlý ☀️'})`;
+    }
+  }
+
   async init() {
     this.registerServiceWorker();
+    this.initTheme();
     this.initAriaValidationSync();
     this.bindNavigation();
     this.bindGlobalActions();
@@ -1624,6 +1767,7 @@ class SkolniPartakApp {
     if (soundInput) soundInput.checked = Boolean(this.notifier.settings.soundEnabled);
     if (reqCheckInput) reqCheckInput.checked = Boolean(this.notifier.settings.requireChecklistTicks);
 
+    this.syncThemeSettingsUI();
     this.updateNotificationPermissionBadge();
   }
 

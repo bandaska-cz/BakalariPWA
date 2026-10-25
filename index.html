@@ -5,7 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Školní parťák – Bakaláři PWA pro ZŠ</title>
   <meta name="description" content="Chytrá školní PWA aplikace napojená na Bakaláři API v3: rozvrh hodin, kroužky, známky s odhadem vysvědčení, domácí úkoly a připomínky s ručním potvrzením.">
-  <meta name="theme-color" content="#6366f1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#6366f1">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a">
+  <script>
+    try {
+      const savedTheme = localStorage.getItem('bakalari_pwa_theme_v1') || 'system';
+      const meta = document.querySelector('meta[name="color-scheme"]');
+      if (savedTheme === 'dark') {
+        if (meta) meta.content = 'dark';
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else if (savedTheme === 'light') {
+        if (meta) meta.content = 'light';
+        document.documentElement.setAttribute('data-theme', 'light');
+      } else {
+        if (meta) meta.content = 'light dark';
+        document.documentElement.setAttribute('data-theme', 'system');
+      }
+    } catch (_) {}
+  </script>
 
   <link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
   <link rel="apple-touch-icon" href="./icons/icon.svg">
@@ -36,6 +54,10 @@
       </div>
 
       <div class="header-actions">
+        <button type="button" id="btn-theme-toggle" class="btn-icon-round" title="Změnit motiv: Podle systému (kliknutím přepnete na Světlý)" aria-label="Změnit motiv">
+          <span id="theme-toggle-icon" aria-hidden="true">💻</span>
+        </button>
+
         <button type="button" id="btn-open-pin-modal" class="btn-role-pin-switch role-parent" title="Kliknutím zadáte PIN nebo přepnete mezi Rodičovským a Dětským režimem">
           <span id="header-role-badge" class="role-badge-label">👨‍👩‍👧 Rodič</span>
           <span class="pin-key-chip" aria-hidden="true">🔑</span>
@@ -474,7 +496,48 @@
           </div>
         </article>
 
-        <!-- Card 2: Bakaláři API v3 Connection -->
+        <!-- Card 2: Appearance & Theme -->
+        <article class="settings-card theme-settings-card">
+          <h2>🎨 Vzhled aplikace (Barevný motiv)</h2>
+          <p class="card-desc">Vyberte si světlý motiv, tmavý motiv pro šetření očí a baterie ve tmě, nebo nechte aplikaci přizpůsobit se vašemu zařízení.</p>
+
+          <div class="theme-options-grid" role="radiogroup" aria-label="Volba barevného motivu">
+            <label class="theme-option-card">
+              <input type="radio" name="app-theme" value="system" class="visually-hidden" checked>
+              <div class="theme-card-inner">
+                <span class="theme-card-icon" aria-hidden="true">💻</span>
+                <div class="theme-card-info">
+                  <strong>Podle systému</strong>
+                  <small id="theme-system-status-note">Automaticky podle nastavení zařízení</small>
+                </div>
+              </div>
+            </label>
+
+            <label class="theme-option-card">
+              <input type="radio" name="app-theme" value="light" class="visually-hidden">
+              <div class="theme-card-inner">
+                <span class="theme-card-icon" aria-hidden="true">☀️</span>
+                <div class="theme-card-info">
+                  <strong>Světlý režim</strong>
+                  <small>Klasické světlé barvy</small>
+                </div>
+              </div>
+            </label>
+
+            <label class="theme-option-card">
+              <input type="radio" name="app-theme" value="dark" class="visually-hidden">
+              <div class="theme-card-inner">
+                <span class="theme-card-icon" aria-hidden="true">🌙</span>
+                <div class="theme-card-info">
+                  <strong>Tmavý režim</strong>
+                  <small>Šetří oči i baterii ve tmě</small>
+                </div>
+              </div>
+            </label>
+          </div>
+        </article>
+
+        <!-- Card 3: Bakaláři API v3 Connection -->
         <article class="settings-card">
           <h2>🔌 Připojení na školní systém Bakaláři (API v3)</h2>
           <p class="card-desc">Aplikace komunikuje podle specifikace <code>bakalari-api-v3</code> (endpointy <code>/api/3/login</code>, <code>/api/3/timetable/actual</code>, <code>/api/3/marks</code>, <code>/api/3/homeworks</code>).</p>
@@ -571,7 +634,7 @@
   <!-- ==================== FOOTER ==================== -->
   <footer class="app-footer">
     <p>Školní parťák – PWA pro základní školu • Postaveno na <a href="https://github.com/bakalari-api/bakalari-api-v3" target="_blank" rel="noopener noreferrer">Bakaláři API v3</a></p>
-    <p class="app-version-tag">Verze: <strong>v1.2.1</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
+    <p class="app-version-tag">Verze: <strong>v1.3.0</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
   </footer>
 
   <!-- ==========================================================================
