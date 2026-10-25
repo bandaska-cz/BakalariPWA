@@ -1488,6 +1488,40 @@ body {
   border-color: transparent;
 }
 
+.input-with-btn-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.input-with-btn-row .form-input {
+  flex: 1 1 160px;
+}
+
+.field-error-msg {
+  display: none;
+  color: #dc2626;
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-top: 0.15rem;
+}
+
+.form-input:user-invalid,
+.form-input.user-invalid-fallback {
+  border-color: #dc2626;
+  background-color: #fef2f2;
+}
+
+.form-input:user-invalid + .field-error-msg,
+.form-input.user-invalid-fallback + .field-error-msg {
+  display: block;
+}
+
+.form-input:user-valid {
+  border-color: #16a34a;
+}
+
 .form-hint {
   font-size: 0.76rem;
   color: var(--text-muted);

@@ -275,39 +275,120 @@
       <article class="settings-card family-sync-card">
         <div class="family-card-header">
           <div>
-            <h2>👨‍👩‍👧 Rodinná synchronizace přes Cloudflare &amp; PINy (Táta, Máma, Theuška)</h2>
+            <h2>👨‍👩‍👧 Zabezpečená rodinná synchronizace (Multi-tenant Cloud &amp; 8místné PINy)</h2>
             <p class="card-desc">
-              Přihlaste se na svém telefonu k Bakalářům níže a nastavte zde <strong>Rodičovský PIN</strong> (pro vás a manželku) a <strong>Dětský PIN</strong> (pro Theušku).
-              Na telefonu manželky a Theušky pak jen kliknete nahoře na <strong>„🔑 Zadat PIN“</strong> – vše včetně účtu Bakalářů, kroužků i potvrzení se jim propojí automaticky!
+              Každá rodina má svůj vlastní izolovaný prostor chráněný <strong>Kódem rodiny</strong> a <strong>8místnými PINy</strong> (Rodičovský a Dětský).
+              PINy se ukládají pouze jako kryptografický otisk (SHA-256) a přístup je chráněn proti hádání (max. 5 pokusů).
             </p>
           </div>
           <span id="family-sync-status-pill" class="status-pill demo">Nepřipojeno ke cloudu</span>
         </div>
 
         <form id="family-setup-form" class="settings-form">
-          <div class="form-row-3">
+          <div class="form-row-2">
             <div class="form-group">
-              <label for="family-worker-url">Adresa vašeho Cloudflare Workeru:</label>
-              <input type="url" id="family-worker-url" class="form-input" value="https://mute-cloud-b42b.radek-bunda.workers.dev" required>
+              <label for="family-code-id">🏠 Unikátní Kód vaší rodiny (4–24 znaků):</label>
+              <small id="family-code-hint" class="form-hint">Slouží k oddělení vaší rodiny od ostatních uživatelů (např. <code>BUNDA-7X9K</code>).</small>
+              <div class="input-with-btn-row">
+                <input
+                  type="text"
+                  id="family-code-id"
+                  name="familyId"
+                  class="form-input pin-input-field"
+                  placeholder="např. BUNDA-7X9K"
+                  minlength="4"
+                  maxlength="24"
+                  pattern="[A-Za-z0-9_\-]{4,24}"
+                  autocorrect="off"
+                  autocapitalize="characters"
+                  spellcheck="false"
+                  aria-describedby="family-code-hint"
+                  required
+                >
+                <button type="button" id="btn-generate-family-id" class="btn-outline-sm" title="Vygenerovat náhodný bezpečný kód rodiny">
+                  🎲 Vygenerovat
+                </button>
+                <button type="button" id="btn-copy-family-link" class="btn-outline-sm" title="Zkopírovat odkaz pro rychlé připojení rodiny">
+                  📋 Odkaz pro rodinu
+                </button>
+              </div>
             </div>
+
             <div class="form-group">
-              <label for="family-parent-pin">👨‍👩‍👧 Rodičovský PIN (Táta &amp; Máma):</label>
-              <input type="text" id="family-parent-pin" class="form-input pin-input-field" placeholder="např. 1234" inputmode="numeric" maxlength="12" required>
-              <small class="form-hint">Odemkne zprávy Komens, úpravu kroužků a nastavení.</small>
-            </div>
-            <div class="form-group">
-              <label for="family-child-pin">👧 Dětský PIN (pro Theušku):</label>
-              <input type="text" id="family-child-pin" class="form-input pin-input-field" placeholder="např. 5555" inputmode="numeric" maxlength="12" required>
-              <small class="form-hint">Odemkne dětský režim (rozvrh, kroužky, známky, úkoly, upozornění).</small>
+              <label for="family-worker-url">Adresa Cloudflare Workeru:</label>
+              <small id="family-worker-hint" class="form-hint">Výchozí zabezpečený rodinný Worker (nebo váš vlastní).</small>
+              <input
+                type="url"
+                id="family-worker-url"
+                name="workerUrl"
+                class="form-input"
+                value="https://mute-cloud-b42b.radek-bunda.workers.dev"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                aria-describedby="family-worker-hint"
+                required
+              >
             </div>
           </div>
 
+          <div class="form-row-2">
+            <div class="form-group">
+              <label for="family-parent-pin">👨‍👩‍👧 Rodičovský PIN (min. 8 znaků – Táta &amp; Máma):</label>
+              <small id="parent-pin-hint" class="form-hint">Min. 8 znaků (čísla nebo písmena). Odemkne Komens, kroužky a nastavení.</small>
+              <input
+                type="text"
+                id="family-parent-pin"
+                name="parentPin"
+                class="form-input pin-input-field"
+                placeholder="alespoň 8 znaků"
+                minlength="8"
+                maxlength="24"
+                pattern=".{8,24}"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                aria-describedby="parent-pin-hint"
+                required
+              >
+              <div class="field-error-msg" aria-live="polite">❌ Rodičovský PIN musí mít alespoň 8 znaků.</div>
+            </div>
+            <div class="form-group">
+              <label for="family-child-pin">👧 Dětský PIN (min. 8 znaků – pro dceru):</label>
+              <small id="child-pin-hint" class="form-hint">Min. 8 znaků (odlišný od rodičovského). Odemkne dětský režim s upozorněními.</small>
+              <input
+                type="text"
+                id="family-child-pin"
+                name="childPin"
+                class="form-input pin-input-field"
+                placeholder="alespoň 8 znaků"
+                minlength="8"
+                maxlength="24"
+                pattern=".{8,24}"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                aria-describedby="child-pin-hint"
+                required
+              >
+              <div class="field-error-msg" aria-live="polite">❌ Dětský PIN musí mít alespoň 8 znaků.</div>
+            </div>
+          </div>
+
+          <label class="checkbox-setting-row" for="family-share-baka-auth">
+            <input type="checkbox" id="family-share-baka-auth">
+            <span>
+              <strong>Sdílet přihlášení k Bakalářům přes cloud pro dětský telefon (E2E šifrováno AES-GCM)</strong><br>
+              <small class="form-hint">Pokud není zaškrtnuto (Token-less režim), tokeny k Bakalářům se do cloudu vůbec neposílají a každý telefon se přihlašuje k Bakalářům samostatně.</small>
+            </span>
+          </label>
+
           <div class="family-actions-row">
             <button type="submit" id="btn-save-family-cloud" class="btn-primary">
-              ☁️ Uložit rodinný profil a aktivovat PINy v Cloudflare
+              ☁️ Uložit rodinný profil a aktivovat 8místné PINy
             </button>
             <button type="button" id="btn-switch-to-child-preview" class="btn-outline">
-              👧 Přepnout tento telefon do režimu Theušky
+              👧 Přepnout tento telefon do dětského režimu
             </button>
           </div>
         </form>
@@ -382,25 +463,66 @@
           <form id="bakalari-login-form" class="settings-form">
             <div class="form-group">
               <label for="input-baka-url">URL adresa školních Bakalářů:</label>
-              <input type="text" id="input-baka-url" class="form-input" placeholder="https://zs-vb.bakalari.cz:5010" value="https://zs-vb.bakalari.cz:5010" required>
-              <small class="form-hint">Pozor: před číslem portu musí být dvojtečka <code>:5010</code> (nikoli lomítko <code>/5010</code>).</small>
+              <small id="baka-url-hint" class="form-hint">Pozor: před číslem portu musí být dvojtečka <code>:5010</code> (nikoli lomítko <code>/5010</code>).</small>
+              <input
+                type="text"
+                id="input-baka-url"
+                name="schoolUrl"
+                class="form-input"
+                placeholder="https://zs-vb.bakalari.cz:5010"
+                value="https://zs-vb.bakalari.cz:5010"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                aria-describedby="baka-url-hint"
+                required
+              >
             </div>
 
             <div class="form-row-2">
               <div class="form-group">
                 <label for="input-baka-user">Přihlašovací jméno:</label>
-                <input type="text" id="input-baka-user" class="form-input" autocomplete="username" placeholder="žákovský nebo rodičovský účet" required>
+                <input
+                  type="text"
+                  id="input-baka-user"
+                  name="username"
+                  class="form-input"
+                  autocomplete="username"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  placeholder="žákovský nebo rodičovský účet"
+                  required
+                >
               </div>
               <div class="form-group">
                 <label for="input-baka-pass">Heslo:</label>
-                <input type="password" id="input-baka-pass" class="form-input" autocomplete="current-password" placeholder="••••••••" required>
+                <input
+                  type="password"
+                  id="input-baka-pass"
+                  name="password"
+                  class="form-input"
+                  autocomplete="current-password"
+                  placeholder="••••••••"
+                  required
+                >
               </div>
             </div>
 
             <div class="form-group">
               <label for="input-baka-proxy">Volitelná CORS Proxy URL (můžete nechat prázdné, zkouší se nejprve přímé spojení):</label>
-              <input type="text" id="input-baka-proxy" class="form-input" placeholder="např. https://mute-cloud-b42b.radek-bunda.workers.dev">
-              <small class="form-hint">Aplikace nejprve vyzkouší rychlé přímé spojení se školou a teprve v případě blokace použije proxy.</small>
+              <small id="baka-proxy-hint" class="form-hint">Aplikace nejprve vyzkouší rychlé přímé spojení se školou a teprve v případě blokace použije proxy.</small>
+              <input
+                type="text"
+                id="input-baka-proxy"
+                name="proxyUrl"
+                class="form-input"
+                placeholder="např. https://mute-cloud-b42b.radek-bunda.workers.dev"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                aria-describedby="baka-proxy-hint"
+              >
             </div>
 
             <button type="submit" id="btn-submit-baka-login" class="btn-primary full-width">
@@ -428,7 +550,7 @@
   <!-- ==================== FOOTER ==================== -->
   <footer class="app-footer">
     <p>Školní parťák – PWA pro základní školu • Postaveno na <a href="https://github.com/bakalari-api/bakalari-api-v3" target="_blank" rel="noopener noreferrer">Bakaláři API v3</a></p>
-    <p class="app-version-tag">Verze: <strong>v1.1.4</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
+    <p class="app-version-tag">Verze: <strong>v1.2.0</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
   </footer>
 
   <!-- ==========================================================================
@@ -567,19 +689,55 @@
 
   <!-- ==========================================================================
        MODAL 4: FAMILY PIN CONNECT & ROLE SWITCH DIALOG
-       Allows Wife (Parent PIN) and Theuška (Child PIN) to connect with 1 PIN!
+       Allows Family Members to connect with Family Code + 8-char PIN!
        ========================================================================== -->
   <dialog id="pin-connect-dialog" class="standard-modal" closedby="any" aria-labelledby="pin-modal-heading">
     <form id="pin-connect-form" class="modal-form-box">
-      <h1 id="pin-modal-heading" class="modal-heading">🔑 Přihlášení nebo přepnutí režimu PINem</h1>
+      <h1 id="pin-modal-heading" class="modal-heading">🔑 Přihlášení k rodině nebo přepnutí PINem</h1>
       <p class="card-desc">
-        Zadejte <strong>Rodičovský PIN</strong> (odemkne zprávy od učitelů Komens, správu kroužků a nastavení)
-        nebo <strong>Dětský PIN pro Theušku</strong> (dětský režim s upozorněními).
+        Zadejte <strong>Kód rodiny</strong> a váš <strong>8místný PIN</strong>: Rodičovský (odemkne Komens, kroužky a nastavení)
+        nebo Dětský (dětský režim s upozorněními).
       </p>
 
       <div class="form-group">
-        <label for="pin-connect-code">Váš PIN kód:</label>
-        <input type="password" id="pin-connect-code" class="form-input pin-big-input" inputmode="numeric" placeholder="••••" required>
+        <label for="pin-connect-family-id">🏠 Kód vaší rodiny (4–24 znaků):</label>
+        <small id="pin-family-hint" class="form-hint">Automaticky předvyplněn z odkazu nebo nastavení rodiny.</small>
+        <input
+          type="text"
+          id="pin-connect-family-id"
+          name="familyId"
+          class="form-input pin-input-field"
+          placeholder="např. BUNDA-7X9K"
+          minlength="4"
+          maxlength="24"
+          pattern="[A-Za-z0-9_\-]{4,24}"
+          autocorrect="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          aria-describedby="pin-family-hint"
+          required
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="pin-connect-code">🔐 Váš 8místný PIN kód:</label>
+        <small id="pin-code-hint" class="form-hint">Minimálně 8 znaků (max. 5 pokusů před 15min blokací).</small>
+        <input
+          type="password"
+          id="pin-connect-code"
+          name="pin"
+          class="form-input pin-big-input"
+          minlength="8"
+          maxlength="24"
+          pattern=".{8,24}"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="••••••••"
+          aria-describedby="pin-code-hint"
+          required
+        >
+        <div class="field-error-msg" aria-live="polite">❌ PIN musí mít alespoň 8 znaků.</div>
       </div>
 
       <input type="hidden" id="pin-connect-worker" value="https://mute-cloud-b42b.radek-bunda.workers.dev">

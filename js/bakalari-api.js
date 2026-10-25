@@ -383,7 +383,7 @@ class BakalariApiClient {
   }
 
   /* ========================================================================
-     RODINNÁ SYNCHRONIZACE PŘES CLOUDFLARE WORKER (PINy & SDÍLENÁ DATA)
+     RODINNÁ SYNCHRONIZACE PŘES CLOUDFLARE WORKER (MULTI-TENANT & E2E AES-GCM)
      ======================================================================== */
 
   normalizeWorkerBaseUrl(workerUrl) {
@@ -393,14 +393,94 @@ class BakalariApiClient {
     return url;
   }
 
-  async setupFamilyCloud(workerUrl, parentPin, childPin, statePayload) {
+  normalizeFamilyId(rawId) {
+    return String(rawId || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]/g, '');
+  }
+
+  async deriveAesKey(familyId, pin) {
+    const enc = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+      'raw',
+      enc.encode(`${this.normalizeFamilyId(familyId)}:${String(pin).trim()}`),
+      { name: 'PBKDF2' },
+      false,
+      ['deriveKey']
+    );
+    return window.crypto.subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: enc.encode(`BAKA_E2E_SALT_V2_${this.normalizeFamilyId(familyId)}`),
+        iterations: 60000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  async encryptAuthEnvelope(authObj, familyId, pin) {
+    if (!authObj || !authObj.accessToken || !window.crypto?.subtle) return null;
+    const key = await this.deriveAesKey(familyId, pin);
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const enc = new TextEncoder();
+    const plaintext = enc.encode(JSON.stringify(authObj));
+    const cipherBuf = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+    const toB64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+    return {
+      iv: toB64(iv),
+      data: toB64(cipherBuf)
+    };
+  }
+
+  async decryptAuthEnvelope(envelope, familyId, pin) {
+    if (!envelope || !envelope.iv || !envelope.data || !window.crypto?.subtle) return null;
+    try {
+      const key = await this.deriveAesKey(familyId, pin);
+      const fromB64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const iv = fromB64(envelope.iv);
+      const cipherBytes = fromB64(envelope.data);
+      const plainBuf = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipherBytes);
+      const dec = new TextDecoder();
+      return JSON.parse(dec.decode(plainBuf));
+    } catch (e) {
+      console.warn('Nelze dešifrovat Bakaláři token z cloudu:', e);
+      return null;
+    }
+  }
+
+  async createEncryptedAuthBundle(authObj, familyId, parentPin, childPin) {
+    if (!authObj || !authObj.accessToken) return null;
+    const [parentEnvelope, childEnvelope] = await Promise.all([
+      this.encryptAuthEnvelope(authObj, familyId, parentPin),
+      childPin ? this.encryptAuthEnvelope(authObj, familyId, childPin) : Promise.resolve(null)
+    ]);
+    return { v: 2, parentEnvelope, childEnvelope };
+  }
+
+  async decryptAuthFromBundle(bundle, familyId, pin, role = 'parent') {
+    if (!bundle || !pin) return null;
+    const primary = role === 'child' ? bundle.childEnvelope : bundle.parentEnvelope;
+    const fallback = role === 'child' ? bundle.parentEnvelope : bundle.childEnvelope;
+    const res = await this.decryptAuthEnvelope(primary, familyId, pin);
+    if (res) return res;
+    return this.decryptAuthEnvelope(fallback, familyId, pin);
+  }
+
+  async setupFamilyCloud(workerUrl, familyId, parentPin, childPin, statePayload = {}) {
     const base = this.normalizeWorkerBaseUrl(workerUrl);
+    const cleanFamilyId = this.normalizeFamilyId(familyId);
     const resp = await this.fetchWithTimeout(
       `${base}/family/setup`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          familyId: cleanFamilyId,
           parentPin,
           childPin,
           ...statePayload
@@ -415,32 +495,34 @@ class BakalariApiClient {
     return data;
   }
 
-  async connectWithFamilyPin(workerUrl, pin) {
+  async connectWithFamilyPin(workerUrl, familyId, pin) {
     const base = this.normalizeWorkerBaseUrl(workerUrl);
+    const cleanFamilyId = this.normalizeFamilyId(familyId);
     const resp = await this.fetchWithTimeout(
       `${base}/family/connect`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin })
+        body: JSON.stringify({ familyId: cleanFamilyId, pin })
       },
       10000
     );
     const data = await resp.json();
     if (!resp.ok || !data.ok) {
-      throw new Error(data.error || `Neplatný PIN nebo chyba spojení (HTTP ${resp.status})`);
+      throw new Error(data.error || `Neplatný Kód rodiny nebo PIN (HTTP ${resp.status})`);
     }
     return data;
   }
 
-  async syncFamilyState(workerUrl, pin, partialPayload = {}) {
+  async syncFamilyState(workerUrl, familyId, pin, partialPayload = {}) {
     const base = this.normalizeWorkerBaseUrl(workerUrl);
+    const cleanFamilyId = this.normalizeFamilyId(familyId);
     const resp = await this.fetchWithTimeout(
       `${base}/family/sync`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin, ...partialPayload })
+        body: JSON.stringify({ familyId: cleanFamilyId, pin, ...partialPayload })
       },
       9000
     );

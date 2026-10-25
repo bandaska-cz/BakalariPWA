@@ -40,21 +40,40 @@ class SkolniPartakApp {
       if (raw) {
         return {
           role: 'parent',
+          familyId: 'BUNDA',
           workerUrl: 'https://mute-cloud-b42b.radek-bunda.workers.dev',
           activePin: '',
           parentPin: '',
           childPin: '',
+          shareBakalariAuth: false,
+          ownBakalariLogin: false,
           ...JSON.parse(raw)
         };
       }
     } catch (_) {}
     return {
       role: 'parent', // 'parent' | 'child'
+      familyId: 'BUNDA',
       workerUrl: 'https://mute-cloud-b42b.radek-bunda.workers.dev',
       activePin: '',
       parentPin: '',
-      childPin: ''
+      childPin: '',
+      shareBakalariAuth: false,
+      ownBakalariLogin: false
     };
+  }
+
+  generateRandomFamilyId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let suffix = '';
+    const arr = new Uint8Array(4);
+    if (window.crypto?.getRandomValues) {
+      window.crypto.getRandomValues(arr);
+      for (let i = 0; i < 4; i++) suffix += chars[arr[i] % chars.length];
+    } else {
+      for (let i = 0; i < 4; i++) suffix += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return `RODINA-${suffix}`;
   }
 
   saveFamilyConfig(updates = {}) {
@@ -66,11 +85,34 @@ class SkolniPartakApp {
     return this.familyConfig.role !== 'child';
   }
 
-  applyCloudState(state) {
+  async applyCloudState(state, roleOverride = null) {
     if (!state) return;
-    if (state.bakalariAuth && state.bakalariAuth.accessToken) {
-      this.api.saveAuth(state.bakalariAuth);
+    const effectiveRole = roleOverride || this.familyConfig.role || 'parent';
+
+    if (typeof state.shareBakalariAuth === 'boolean') {
+      this.saveFamilyConfig({ shareBakalariAuth: state.shareBakalariAuth });
     }
+
+    // Use shared Bakaláři token from Family Cloud when in Child Mode
+    // OR when this parent phone has not logged in with its own separate Bakaláři account yet.
+    const useSharedToken = effectiveRole === 'child' || !this.familyConfig.ownBakalariLogin || !this.api.isLiveMode();
+
+    if (useSharedToken && state.shareBakalariAuth) {
+      if (state.encryptedBakalariAuth && this.familyConfig.activePin) {
+        const decrypted = await this.api.decryptAuthFromBundle(
+          state.encryptedBakalariAuth,
+          this.familyConfig.familyId,
+          this.familyConfig.activePin,
+          effectiveRole
+        );
+        if (decrypted && decrypted.accessToken) {
+          this.api.saveAuth(decrypted);
+        }
+      } else if (state.bakalariAuth && state.bakalariAuth.accessToken) {
+        this.api.saveAuth(state.bakalariAuth);
+      }
+    }
+
     if (Array.isArray(state.clubs)) {
       this.clubs = state.clubs;
       window.BakalariPWA.saveCustomClubs(this.clubs);
@@ -93,30 +135,55 @@ class SkolniPartakApp {
   }
 
   async pullFamilySync() {
-    if (!this.familyConfig.activePin || !this.familyConfig.workerUrl) return;
+    if (!this.familyConfig.activePin || !this.familyConfig.workerUrl || !this.familyConfig.familyId) return;
+    if (String(this.familyConfig.activePin).trim().length < 8) return;
     try {
-      const res = await this.api.connectWithFamilyPin(this.familyConfig.workerUrl, this.familyConfig.activePin);
+      const res = await this.api.connectWithFamilyPin(
+        this.familyConfig.workerUrl,
+        this.familyConfig.familyId,
+        this.familyConfig.activePin
+      );
       if (res && res.state) {
-        this.applyCloudState(res.state);
+        await this.applyCloudState(res.state, res.role);
       }
     } catch (e) {
       console.warn('Synchronizace z rodinného cloudu selhala:', e);
     }
   }
 
-  async pushFamilySync() {
-    if (!this.familyConfig.activePin || !this.familyConfig.workerUrl) return;
+  async pushFamilySync(includeAuth = false) {
+    if (!this.familyConfig.activePin || !this.familyConfig.workerUrl || !this.familyConfig.familyId) return;
+    if (String(this.familyConfig.activePin).trim().length < 8) return;
     try {
-      const res = await this.api.syncFamilyState(this.familyConfig.workerUrl, this.familyConfig.activePin, {
-        bakalariAuth: this.api.isLiveMode() ? this.api.auth : undefined,
+      const payload = {
         clubs: this.clubs,
         customHomeworks: this.customHomeworks,
         hwDoneMap: this.hwDoneMap,
         confirmations: this.notifier.confirmations,
         settings: this.notifier.settings
-      });
+      };
+
+      if (includeAuth && this.familyConfig.shareBakalariAuth && this.api.isLiveMode()) {
+        const parentPin = this.familyConfig.parentPin || this.familyConfig.activePin;
+        const childPin = this.familyConfig.childPin || '';
+        payload.shareBakalariAuth = true;
+        payload.encryptedBakalariAuth = await this.api.createEncryptedAuthBundle(
+          this.api.auth,
+          this.familyConfig.familyId,
+          parentPin,
+          childPin
+        );
+        payload.bakalariAuth = null;
+      }
+
+      const res = await this.api.syncFamilyState(
+        this.familyConfig.workerUrl,
+        this.familyConfig.familyId,
+        this.familyConfig.activePin,
+        payload
+      );
       if (res && res.state) {
-        this.applyCloudState(res.state);
+        await this.applyCloudState(res.state, res.role);
       }
     } catch (e) {
       console.warn('Zápis do rodinného cloudu selhal:', e);
@@ -155,14 +222,29 @@ class SkolniPartakApp {
 
   async init() {
     this.registerServiceWorker();
+    this.initAriaValidationSync();
     this.bindNavigation();
     this.bindGlobalActions();
+
+    // Check URL query param ?family=KOD_RODINY for 1-click family onboarding
+    const params = new URLSearchParams(window.location.search);
+    const familyParam = params.get('family');
+    if (familyParam) {
+      const cleanId = this.api.normalizeFamilyId(familyParam);
+      if (cleanId && cleanId.length >= 4) {
+        this.saveFamilyConfig({ familyId: cleanId });
+        if (!this.familyConfig.activePin) {
+          setTimeout(() => {
+            this.openPinConnectModal(`🏠 Načten Kód rodiny „${cleanId}“. Zadejte váš 8místný PIN pro připojení:`);
+          }, 350);
+        }
+      }
+    }
 
     await this.refreshData();
     this.notifier.startScheduler();
 
-    // Check URL hash or query param (e.g. ?confirm=morning from notification click)
-    const params = new URLSearchParams(window.location.search);
+    // Check URL query param ?confirm=morning from notification click
     const confirmParam = params.get('confirm');
     if (confirmParam && ['morning', 'homework17', 'evening'].includes(confirmParam)) {
       setTimeout(() => this.notifier.triggerAlert(confirmParam, true), 400);
@@ -174,6 +256,19 @@ class SkolniPartakApp {
         this.switchTab(tabFromHash);
       }
     }
+  }
+
+  initAriaValidationSync() {
+    const syncAria = (el) => {
+      if (!el || typeof el.matches !== 'function' || !el.classList?.contains('form-input')) return;
+      try {
+        el.setAttribute('aria-invalid', el.matches(':user-invalid') ? 'true' : 'false');
+      } catch (_) {}
+    };
+    document.addEventListener('blur', (e) => syncAria(e.target), true);
+    document.addEventListener('input', (e) => {
+      if (e.target?.hasAttribute?.('aria-invalid')) syncAria(e.target);
+    });
   }
 
   registerServiceWorker() {
@@ -1334,11 +1429,16 @@ class SkolniPartakApp {
     const connStateEl = document.getElementById('baka-connection-status');
 
     // Family Sync inputs
+    const familyIdInput = document.getElementById('family-code-id');
     const workerInput = document.getElementById('family-worker-url');
     const parentPinInput = document.getElementById('family-parent-pin');
     const childPinInput = document.getElementById('family-child-pin');
+    const shareAuthInput = document.getElementById('family-share-baka-auth');
     const familyStatusPill = document.getElementById('family-sync-status-pill');
 
+    if (familyIdInput) {
+      familyIdInput.value = this.familyConfig.familyId || 'BUNDA';
+    }
     if (workerInput && this.familyConfig.workerUrl) {
       workerInput.value = this.familyConfig.workerUrl;
     }
@@ -1348,9 +1448,13 @@ class SkolniPartakApp {
     if (childPinInput && this.familyConfig.childPin) {
       childPinInput.value = this.familyConfig.childPin;
     }
+    if (shareAuthInput) {
+      shareAuthInput.checked = Boolean(this.familyConfig.shareBakalariAuth);
+    }
     if (familyStatusPill) {
-      if (this.familyConfig.activePin) {
-        familyStatusPill.textContent = `☁️ Rodinný cloud aktivní (${this.isParentMode() ? 'Rodič' : 'Theuška'})`;
+      if (this.familyConfig.activePin && this.familyConfig.activePin.length >= 8) {
+        const famLabel = this.familyConfig.familyId || 'RODINA';
+        familyStatusPill.textContent = `☁️ Rodina „${famLabel}“ (${this.isParentMode() ? 'Rodič' : 'Dítě'})`;
         familyStatusPill.className = 'status-pill live';
       } else {
         familyStatusPill.textContent = 'Zatím neuloženo do cloudu';
@@ -1366,24 +1470,28 @@ class SkolniPartakApp {
 
     if (connStateEl) {
       if (this.api.isLiveMode()) {
+        const accountTypeBadge = this.familyConfig.ownBakalariLogin
+          ? '🔐 Vlastní přihlášení na tomto telefonu'
+          : '☁️ Sdílený šifrovaný účet z rodinného cloudu (můžete se níže přihlásit i vlastním účtem)';
         connStateEl.innerHTML = `
           <div class="conn-banner live">
-            <span>🟢 <strong>Připojeno k Bakalářům:</strong> ${window.escapeHtml(this.api.auth.schoolUrl)} (uživatel: <strong>${window.escapeHtml(this.api.auth.username)}</strong>)</span>
-            <button type="button" class="btn-outline-sm" id="btn-logout-baka">Odpojit a přepnout na Demo</button>
+            <span>🟢 <strong>Připojeno k Bakalářům:</strong> ${window.escapeHtml(this.api.auth.schoolUrl)} • účet: <strong>${window.escapeHtml(this.api.auth.username)}</strong> (${accountTypeBadge})</span>
+            <button type="button" class="btn-outline-sm" id="btn-logout-baka">Odpojit tento účet</button>
           </div>
         `;
         const logoutBtn = document.getElementById('btn-logout-baka');
         if (logoutBtn) {
           logoutBtn.addEventListener('click', () => {
+            this.saveFamilyConfig({ ownBakalariLogin: false });
             this.api.logout();
             this.refreshData();
-            this.showToast('Odpojeno. Aplikace nyní běží v ukázkovém režimu.');
+            this.showToast('Účet Bakalářů byl na tomto telefonu odpojen.');
           });
         }
       } else {
         connStateEl.innerHTML = `
           <div class="conn-banner demo">
-            <span>🟣 <strong>Aktuálně je aktivní Ukázkový režim (Demo ZŠ).</strong> Zadejte níže přihlašovací údaje do školních Bakalářů pro načtení skutečných dat dcery.</span>
+            <span>🟣 <strong>Aktuálně je aktivní Ukázkový režim (Demo ZŠ).</strong> Zadejte níže přihlašovací údaje do školních Bakalářů pro načtení skutečných dat.</span>
           </div>
         `;
       }
@@ -1485,10 +1593,14 @@ class SkolniPartakApp {
   openPinConnectModal(customNotice = '') {
     const dialog = document.getElementById('pin-connect-dialog');
     if (!dialog) return;
+    const familyIdInput = document.getElementById('pin-connect-family-id');
     const codeInput = document.getElementById('pin-connect-code');
     const workerInput = document.getElementById('pin-connect-worker');
     const errBox = document.getElementById('pin-connect-error');
 
+    if (familyIdInput) {
+      familyIdInput.value = this.familyConfig.familyId || 'BUNDA';
+    }
     if (codeInput) codeInput.value = '';
     if (workerInput && this.familyConfig.workerUrl) {
       workerInput.value = this.familyConfig.workerUrl;
@@ -1527,19 +1639,66 @@ class SkolniPartakApp {
       });
     }
 
-    // Submit PIN Connect Form (for Wife's phone, Theuška's phone, or switching roles)
+    // Generate random Family ID button
+    const genFamBtn = document.getElementById('btn-generate-family-id');
+    if (genFamBtn) {
+      genFamBtn.addEventListener('click', () => {
+        const newId = this.generateRandomFamilyId();
+        const familyIdInput = document.getElementById('family-code-id');
+        if (familyIdInput) familyIdInput.value = newId;
+        this.showToast(`🎲 Vygenerován nový Kód rodiny: ${newId}`);
+      });
+    }
+
+    // Copy Family Invite Link button
+    const copyFamLinkBtn = document.getElementById('btn-copy-family-link');
+    if (copyFamLinkBtn) {
+      copyFamLinkBtn.addEventListener('click', () => {
+        const rawId = document.getElementById('family-code-id')?.value || this.familyConfig.familyId || 'BUNDA';
+        const cleanId = this.api.normalizeFamilyId(rawId);
+        if (!cleanId || cleanId.length < 4) {
+          this.showToast('Zadejte nejprve platný Kód rodiny (alespoň 4 znaky).', 'error');
+          return;
+        }
+        const shareUrl = `${window.location.origin}${window.location.pathname}?family=${encodeURIComponent(cleanId)}`;
+        navigator.clipboard?.writeText(shareUrl);
+        this.showToast(`📋 Odkaz pro rodinu zkopírován: ${shareUrl}`);
+      });
+    }
+
+    // Submit PIN Connect Form (for Wife's phone, Daughter's phone, or switching roles)
     const pinForm = document.getElementById('pin-connect-form');
     if (pinForm) {
       pinForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const rawFamilyId = document.getElementById('pin-connect-family-id')?.value || this.familyConfig.familyId || 'BUNDA';
+        const familyId = this.api.normalizeFamilyId(rawFamilyId);
         const pin = document.getElementById('pin-connect-code').value.trim();
         const workerUrl = document.getElementById('pin-connect-worker').value.trim();
         const errBox = document.getElementById('pin-connect-error');
         const submitBtn = document.getElementById('btn-submit-pin-connect');
 
-        // Also allow local switching if parentPin/childPin are saved locally on this device
+        if (!familyId || familyId.length < 4) {
+          if (errBox) {
+            errBox.hidden = false;
+            errBox.className = 'login-result-box error';
+            errBox.textContent = '❌ Zadejte platný Kód rodiny (4–24 znaků).';
+          }
+          return;
+        }
+
+        if (pin.length < 8) {
+          if (errBox) {
+            errBox.hidden = false;
+            errBox.className = 'login-result-box error';
+            errBox.textContent = '❌ PIN musí obsahovat alespoň 8 znaků.';
+          }
+          return;
+        }
+
+        // Allow local switching if parentPin/childPin are saved locally on this device
         if (this.familyConfig.parentPin && pin === this.familyConfig.parentPin && !workerUrl) {
-          this.saveFamilyConfig({ role: 'parent', activePin: pin });
+          this.saveFamilyConfig({ role: 'parent', familyId, activePin: pin });
           document.getElementById('pin-connect-dialog')?.close();
           await this.refreshData();
           this.showToast('👨‍👩‍👧 Přepnuto do Rodičovského režimu.');
@@ -1551,13 +1710,14 @@ class SkolniPartakApp {
         if (errBox) errBox.hidden = true;
 
         try {
-          const res = await this.api.connectWithFamilyPin(workerUrl, pin);
+          const res = await this.api.connectWithFamilyPin(workerUrl, familyId, pin);
           this.saveFamilyConfig({
             role: res.role || 'child',
+            familyId,
             workerUrl,
             activePin: pin
           });
-          this.applyCloudState(res.state);
+          await this.applyCloudState(res.state, res.role);
           document.getElementById('pin-connect-dialog')?.close();
           if (res.role === 'child' && (this.activeTab === 'settings' || this.activeTab === 'parent-komens')) {
             this.switchTab('dashboard');
@@ -1568,22 +1728,22 @@ class SkolniPartakApp {
           await this.refreshData();
           this.showToast(
             res.role === 'parent'
-              ? '👨‍👩‍👧 Úspěšně přihlášeno v Rodičovském režimu (včetně zpráv Komens a správy kroužků)!'
-              : '👧 Úspěšně přihlášeno v režimu Theušky!'
+              ? `👨‍👩‍👧 Přihlášeno k rodině „${familyId}“ v Rodičovském režimu!`
+              : `👧 Přihlášeno k rodině „${familyId}“ v dětském režimu!`
           );
         } catch (err) {
-          // Fallback: if local parentPin / childPin match on this device
-          if (this.familyConfig.parentPin && pin === this.familyConfig.parentPin) {
+          // Fallback: if local parentPin / childPin match on this device for same family
+          if (this.familyConfig.familyId === familyId && this.familyConfig.parentPin && pin === this.familyConfig.parentPin) {
             this.saveFamilyConfig({ role: 'parent', activePin: pin });
             document.getElementById('pin-connect-dialog')?.close();
             await this.refreshData();
             this.showToast('👨‍👩‍👧 Odemčeno lokálním Rodičovským PINem.');
-          } else if (this.familyConfig.childPin && pin === this.familyConfig.childPin) {
+          } else if (this.familyConfig.familyId === familyId && this.familyConfig.childPin && pin === this.familyConfig.childPin) {
             this.saveFamilyConfig({ role: 'child', activePin: pin });
             document.getElementById('pin-connect-dialog')?.close();
             this.switchTab('dashboard');
             await this.refreshData();
-            this.showToast('👧 Přepnuto do režimu Theušky.');
+            this.showToast('👧 Přepnuto do dětského režimu.');
           } else if (errBox) {
             errBox.hidden = false;
             errBox.className = 'login-result-box error';
@@ -1596,16 +1756,29 @@ class SkolniPartakApp {
       });
     }
 
-    // Family Setup Form (Father saves Parent PIN, Child PIN & Bakaláři Auth to Cloudflare Worker)
+    // Family Setup Form (Father saves Family ID, 8-char Parent PIN & Child PIN to Cloudflare Worker)
     const familySetupForm = document.getElementById('family-setup-form');
     if (familySetupForm) {
       familySetupForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const rawFamilyId = document.getElementById('family-code-id')?.value || '';
+        const familyId = this.api.normalizeFamilyId(rawFamilyId);
         const workerUrl = document.getElementById('family-worker-url').value.trim();
         const parentPin = document.getElementById('family-parent-pin').value.trim();
         const childPin = document.getElementById('family-child-pin').value.trim();
+        const shareBakalariAuth = Boolean(document.getElementById('family-share-baka-auth')?.checked);
         const resultEl = document.getElementById('family-setup-result');
         const saveBtn = document.getElementById('btn-save-family-cloud');
+
+        if (!familyId || familyId.length < 4) {
+          this.showToast('Zadejte platný Kód rodiny (4–24 znaků).', 'error');
+          return;
+        }
+
+        if (parentPin.length < 8 || childPin.length < 8) {
+          this.showToast('Rodičovský i Dětský PIN musí mít alespoň 8 znaků!', 'error');
+          return;
+        }
 
         if (parentPin === childPin) {
           this.showToast('Rodičovský PIN a Dětský PIN musí být odlišné!', 'error');
@@ -1613,12 +1786,24 @@ class SkolniPartakApp {
         }
 
         saveBtn.disabled = true;
-        saveBtn.textContent = 'Ukládám do Cloudflare...';
+        saveBtn.textContent = 'Šifruji a ukládám do Cloudflare...';
 
         try {
-          await this.api.setupFamilyCloud(workerUrl, parentPin, childPin, {
+          let encryptedBakalariAuth = null;
+          if (shareBakalariAuth && this.api.isLiveMode()) {
+            encryptedBakalariAuth = await this.api.createEncryptedAuthBundle(
+              this.api.auth,
+              familyId,
+              parentPin,
+              childPin
+            );
+          }
+
+          await this.api.setupFamilyCloud(workerUrl, familyId, parentPin, childPin, {
             currentParentPin: this.familyConfig.parentPin || parentPin,
-            bakalariAuth: this.api.auth,
+            shareBakalariAuth,
+            encryptedBakalariAuth,
+            bakalariAuth: null,
             clubs: this.clubs,
             customHomeworks: this.customHomeworks,
             hwDoneMap: this.hwDoneMap,
@@ -1628,34 +1813,43 @@ class SkolniPartakApp {
 
           this.saveFamilyConfig({
             role: 'parent',
+            familyId,
             workerUrl,
             activePin: parentPin,
             parentPin,
-            childPin
+            childPin,
+            shareBakalariAuth
           });
+
+          const inviteLink = `${window.location.origin}${window.location.pathname}?family=${encodeURIComponent(familyId)}`;
+          const authModeDesc = shareBakalariAuth
+            ? '🔐 Přihlášení k Bakalářům je v cloudu <strong>End-to-End zašifrováno (AES-GCM)</strong>'
+            : '🛡️ <strong>Token-less režim:</strong> Přístupové tokeny k Bakalářům se do cloudu vůbec neukládají';
 
           if (resultEl) {
             resultEl.hidden = false;
             resultEl.className = 'login-result-box success';
             resultEl.innerHTML = `
-              ✅ <strong>Rodinná synchronizace je aktivní!</strong><br>
-              • Na telefonu manželky klikněte nahoře na <strong>„🔑 Zadat PIN“</strong> a zadejte Rodičovský PIN: <code>${window.escapeHtml(parentPin)}</code><br>
-              • Na telefonu Theušky klikněte nahoře na <strong>„🔑 Zadat PIN“</strong> a zadejte Dětský PIN: <code>${window.escapeHtml(childPin)}</code>
+              ✅ <strong>Rodinná synchronizace pro rodinu „${window.escapeHtml(familyId)}“ je aktivní!</strong><br>
+              • ${authModeDesc}<br>
+              • Zvací odkaz pro rodinu: <code>${window.escapeHtml(inviteLink)}</code><br>
+              • Na telefonu manželky zadejte Rodičovský PIN: <code>${window.escapeHtml(parentPin)}</code><br>
+              • Na telefonu dcery zadejte Dětský PIN: <code>${window.escapeHtml(childPin)}</code>
             `;
           }
           this.renderSettingsSection();
           this.renderHeaderStatus();
-          this.showToast('☁️ Rodinný profil a PINy byly uloženy do Cloudflare!');
+          this.showToast(`☁️ Rodina „${familyId}“ a 8místné PINy byly uloženy!`);
         } catch (err) {
           if (resultEl) {
             resultEl.hidden = false;
             resultEl.className = 'login-result-box error';
-            resultEl.textContent = `❌ ${err.message} (Ujistěte se, že jste do Cloudflare Workeru vložil nový kód souboru cloudflare-worker-proxy.js).`;
+            resultEl.textContent = `❌ ${err.message} (Ujistěte se, že jste do Cloudflare Workeru nasadil novou verzi cloudflare-worker-proxy.js).`;
           }
           this.showToast(err.message, 'error');
         } finally {
           saveBtn.disabled = false;
-          saveBtn.textContent = '☁️ Uložit rodinný profil a aktivovat PINy v Cloudflare';
+          saveBtn.textContent = '☁️ Uložit rodinný profil a aktivovat 8místné PINy';
         }
       });
     }
@@ -1664,8 +1858,12 @@ class SkolniPartakApp {
     const switchChildBtn = document.getElementById('btn-switch-to-child-preview');
     if (switchChildBtn) {
       switchChildBtn.addEventListener('click', () => {
-        const childPin = document.getElementById('family-child-pin')?.value.trim() || this.familyConfig.childPin || '5555';
-        const parentPin = document.getElementById('family-parent-pin')?.value.trim() || this.familyConfig.parentPin || '1234';
+        const childPin = document.getElementById('family-child-pin')?.value.trim() || this.familyConfig.childPin || '';
+        const parentPin = document.getElementById('family-parent-pin')?.value.trim() || this.familyConfig.parentPin || '';
+        if (childPin.length < 8 || parentPin.length < 8) {
+          this.showToast('Nejprve prosím nastavte alespoň 8místný Rodičovský a Dětský PIN.', 'error');
+          return;
+        }
         this.saveFamilyConfig({
           role: 'child',
           activePin: childPin,
@@ -1674,7 +1872,7 @@ class SkolniPartakApp {
         });
         this.switchTab('dashboard');
         this.renderAll();
-        this.showToast(`👧 Přepnuto do režimu Theušky! Pro návrat do rodičovského režimu klikněte nahoře na „🔑 Přepnout PIN“ (PIN: ${parentPin}).`);
+        this.showToast(`👧 Přepnuto do dětského režimu! Pro návrat do rodičovského režimu klikněte nahoře na „🔑 Změnit“ a zadejte Rodičovský PIN.`);
       });
     }
 
@@ -1866,15 +2064,18 @@ class SkolniPartakApp {
 
         try {
           await this.api.login(url, user, pass, proxy);
+          this.saveFamilyConfig({ ownBakalariLogin: true });
           document.getElementById('input-baka-pass').value = '';
           await this.refreshData();
-          this.pushFamilySync();
+          if (this.familyConfig.shareBakalariAuth) {
+            this.pushFamilySync(true);
+          }
           if (resultBoxEl) {
             resultBoxEl.hidden = false;
             resultBoxEl.className = 'login-result-box success';
-            resultBoxEl.textContent = `✅ Úspěšně připojeno ke školnímu systému Bakaláři (${this.api.auth.schoolUrl})! Rozvrh, známky i úkoly byly načteny.`;
+            resultBoxEl.textContent = `✅ Úspěšně připojeno pod účtem ${this.api.auth.username} (${this.api.auth.schoolUrl})! Tento telefon nyní čte a potvrzuje zprávy Komens pod tímto účtem a zároveň zůstává v rodinné synchronizaci.`;
           }
-          this.showToast('✅ Úspěšně připojeno ke školnímu systému Bakaláři!');
+          this.showToast(`✅ Připojeno k Bakalářům pod účtem ${this.api.auth.username}!`);
         } catch (err) {
           if (resultBoxEl) {
             resultBoxEl.hidden = false;
