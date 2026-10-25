@@ -192,6 +192,13 @@
         </div>
 
         <div class="toolbar-controls">
+          <label for="marks-subject-select" class="inline-select-label">
+            Předmět:
+            <select id="marks-subject-select" class="form-select-sm">
+              <option value="all" selected>Všechny předměty</option>
+            </select>
+          </label>
+
           <label for="marks-threshold-select" class="inline-select-label">
             Hranice pro lepší známku:
             <select id="marks-threshold-select" class="form-select-sm">
@@ -205,6 +212,9 @@
 
       <!-- Overall Report Card Summary -->
       <div id="marks-report-summary"></div>
+
+      <!-- Quick Subject Filter Pills -->
+      <div id="marks-subject-filter-pills" class="subject-filter-pills-bar" role="group" aria-label="Filtr známek podle předmětu"></div>
 
       <!-- Individual Subject Cards -->
       <div id="marks-subjects-list" class="subjects-grid"></div>
@@ -239,15 +249,26 @@
       <div class="section-toolbar">
         <div>
           <h2>✉️ Zprávy ze školy (Komens), Nástěnka a Absence</h2>
-          <p>Tato sekce je dostupná <strong>pouze v Rodičovském režimu</strong>. Na telefonu Theušky je skrytá a zprávy se tam nestahují.</p>
+          <p>Tato sekce je dostupná <strong>pouze v Rodičovském režimu</strong>. Na dětském telefonu je skrytá a zprávy se tam nestahují.</p>
         </div>
       </div>
 
       <div class="komens-layout-grid">
         <div class="dash-panel">
-          <div class="panel-header">
+          <div class="panel-header komens-panel-header">
             <h2>📩 Přijaté zprávy od učitelů (Komens)</h2>
+            <button type="button" id="btn-komens-sort-dir" class="btn-outline-sm" title="Změnit směr řazení zpráv podle data">
+              ⬇️ Nejnovější nahoře
+            </button>
           </div>
+
+          <div class="komens-filter-toolbar" role="group" aria-label="Filtr zpráv ze školy">
+            <button type="button" class="seg-btn active" data-komens-filter="all" id="komens-tab-all">Vše</button>
+            <button type="button" class="seg-btn" data-komens-filter="unread" id="komens-tab-unread">Nepřečtené</button>
+            <button type="button" class="seg-btn" data-komens-filter="to_confirm" id="komens-tab-to-confirm">K potvrzení</button>
+            <button type="button" class="seg-btn" data-komens-filter="confirmed" id="komens-tab-confirmed">Potvrzené</button>
+          </div>
+
           <div id="parent-komens-received-list" class="komens-messages-stack"></div>
         </div>
 
@@ -550,7 +571,7 @@
   <!-- ==================== FOOTER ==================== -->
   <footer class="app-footer">
     <p>Školní parťák – PWA pro základní školu • Postaveno na <a href="https://github.com/bakalari-api/bakalari-api-v3" target="_blank" rel="noopener noreferrer">Bakaláři API v3</a></p>
-    <p class="app-version-tag">Verze: <strong>v1.2.0</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
+    <p class="app-version-tag">Verze: <strong>v1.2.1</strong> • <button type="button" id="btn-force-cache-reload" class="btn-link-mini">Obnovit mezipaměť</button></p>
   </footer>
 
   <!-- ==========================================================================

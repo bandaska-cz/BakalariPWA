@@ -1249,12 +1249,85 @@ body {
   border-radius: 4px;
 }
 
+.mark-chip-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  line-height: 1.2;
+}
+
 .mark-chip-caption {
-  color: var(--text-muted);
-  max-width: 180px;
+  color: var(--text-main);
+  font-weight: 700;
+  max-width: 190px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mark-chip-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.subject-filter-pills-bar {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin: 0 0 1.15rem;
+}
+
+.subj-filter-pill {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 0.42rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.subj-filter-pill small {
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.subj-filter-pill:hover {
+  border-color: var(--primary);
+  background: var(--bg-subtle);
+}
+
+.subj-filter-pill.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.komens-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.komens-filter-toolbar {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding: 0.25rem;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.komens-filter-toolbar .seg-btn {
+  flex: 1 1 auto;
+  text-align: center;
 }
 
 .mark-new-dot {

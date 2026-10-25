@@ -32,6 +32,9 @@ class SkolniPartakApp {
     this.timetableViewMode = 'daily'; // 'daily' | 'weekly'
     this.weekOffset = 0; // 0 = current week, 1 = next week
     this.hwFilter = 'active'; // 'active' | 'tomorrow' | 'all'
+    this.marksSubjectFilter = 'all'; // 'all' | subjectId/Abbrev
+    this.komensFilter = 'all'; // 'all' | 'unread' | 'to_confirm' | 'confirmed'
+    this.komensSortOrder = 'desc'; // 'desc' (nejnovější nahoře) | 'asc' (nejstarší nahoře)
   }
 
   loadFamilyConfig() {
@@ -949,9 +952,22 @@ class SkolniPartakApp {
      MARKS & ESTIMATED REPORT CARD (ZNÁMKY A ODHAD VYSVĚDČENÍ)
      ======================================================================== */
 
+  formatMarkDate(rawDate) {
+    if (!rawDate) return '';
+    try {
+      const dt = new Date(rawDate);
+      if (Number.isNaN(dt.getTime())) return '';
+      return dt.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' });
+    } catch (_) {
+      return '';
+    }
+  }
+
   renderMarksSection() {
     const summaryContainer = document.getElementById('marks-report-summary');
     const subjectsContainer = document.getElementById('marks-subjects-list');
+    const filterPillsEl = document.getElementById('marks-subject-filter-pills');
+    const subjectSelectEl = document.getElementById('marks-subject-select');
     if (!summaryContainer || !subjectsContainer) return;
 
     const report = window.BakalariPWA.analyzeOverallReportCard(
@@ -959,6 +975,42 @@ class SkolniPartakApp {
       this.whatIfMarks,
       this.gradeThresholdOffset
     );
+
+    // Ensure selected subject filter still exists, otherwise reset to 'all'
+    if (
+      this.marksSubjectFilter !== 'all' &&
+      !report.subjects.some((s) => (s.subject.Id || s.subject.Abbrev) === this.marksSubjectFilter)
+    ) {
+      this.marksSubjectFilter = 'all';
+    }
+
+    // Populate Subject Select dropdown & Quick Filter Pills
+    if (subjectSelectEl) {
+      subjectSelectEl.innerHTML = [
+        `<option value="all" ${this.marksSubjectFilter === 'all' ? 'selected' : ''}>Všechny předměty (${report.subjects.length})</option>`,
+        ...report.subjects.map((s) => {
+          const sid = s.subject.Id || s.subject.Abbrev;
+          return `<option value="${window.escapeHtml(sid)}" ${this.marksSubjectFilter === sid ? 'selected' : ''}>${window.escapeHtml(s.subject.Name)} (${window.escapeHtml(s.subject.Abbrev)})</option>`;
+        })
+      ].join('');
+    }
+
+    if (filterPillsEl) {
+      filterPillsEl.innerHTML = [
+        `<button type="button" class="subj-filter-pill ${this.marksSubjectFilter === 'all' ? 'active' : ''}" data-marks-subj-filter="all">Vše (${report.subjects.length})</button>`,
+        ...report.subjects.map((s) => {
+          const sid = s.subject.Id || s.subject.Abbrev;
+          return `<button type="button" class="subj-filter-pill ${this.marksSubjectFilter === sid ? 'active' : ''}" data-marks-subj-filter="${window.escapeHtml(sid)}" title="${window.escapeHtml(s.subject.Name)}">${window.escapeHtml(s.subject.Abbrev)} <small>(${s.marks.length})</small></button>`;
+        })
+      ].join('');
+
+      filterPillsEl.querySelectorAll('[data-marks-subj-filter]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.marksSubjectFilter = btn.getAttribute('data-marks-subj-filter') || 'all';
+          this.renderMarksSection();
+        });
+      });
+    }
 
     const hasAnyWhatIf = Object.values(this.whatIfMarks).some((arr) => arr && arr.length > 0);
     const finalAvgStr = report.overallFinalAverage !== null
@@ -1011,8 +1063,13 @@ class SkolniPartakApp {
       });
     }
 
+    const visibleSubjects =
+      this.marksSubjectFilter === 'all'
+        ? report.subjects
+        : report.subjects.filter((s) => (s.subject.Id || s.subject.Abbrev) === this.marksSubjectFilter);
+
     // Render individual subjects
-    subjectsContainer.innerHTML = report.subjects.map((subjAnalysis) => {
+    subjectsContainer.innerHTML = visibleSubjects.map((subjAnalysis) => {
       const subjId = subjAnalysis.subject.Id || subjAnalysis.subject.Abbrev;
       const estGrade = subjAnalysis.estimatedGrade || '—';
       const gradeClass = `grade-bg-${estGrade}`;
@@ -1041,13 +1098,17 @@ class SkolniPartakApp {
 
           <div class="marks-badges-row">
             ${subjAnalysis.marks.length === 0 ? `<span class="empty-note">Zatím žádné známky</span>` : ''}
-            ${subjAnalysis.marks.map((m, idx) => {
+            ${subjAnalysis.marks.map((m) => {
               const numGrade = Math.round(m.numericValue || 1);
+              const dateStr = m.isWhatIf ? 'Nanečisto' : this.formatMarkDate(m.Date || m.EditDate);
               return `
-                <div class="mark-chip g-chip-${numGrade} ${m.isWhatIf ? 'is-whatif' : ''}" title="${window.escapeHtml(m.Caption || '')} – ${window.escapeHtml(m.Theme || '')} (váha ${m.effectiveWeight})">
+                <div class="mark-chip g-chip-${numGrade} ${m.isWhatIf ? 'is-whatif' : ''}" title="${window.escapeHtml(m.Caption || '')} – ${window.escapeHtml(m.Theme || '')} (váha ${m.effectiveWeight}${dateStr ? `, datum: ${dateStr}` : ''})">
                   <span class="mark-chip-val">${window.escapeHtml(m.MarkText)}</span>
                   <span class="mark-chip-weight">v.${m.effectiveWeight}</span>
-                  <span class="mark-chip-caption">${window.escapeHtml(m.Caption || m.Theme || 'Známka')}</span>
+                  <div class="mark-chip-meta">
+                    <span class="mark-chip-caption">${window.escapeHtml(m.Caption || m.Theme || 'Známka')}</span>
+                    ${dateStr ? `<span class="mark-chip-date">📅 ${window.escapeHtml(dateStr)}</span>` : ''}
+                  </div>
                   ${m.IsNew ? `<span class="mark-new-dot">NOVÁ</span>` : ''}
                   ${m.isWhatIf ? `<button type="button" class="mark-remove-whatif" data-remove-whatif="${window.escapeHtml(subjId)}" data-whatif-idx="${m.whatIfIndex}" aria-label="Odebrat zkušební známku">×</button>` : ''}
                 </div>
@@ -1241,6 +1302,7 @@ class SkolniPartakApp {
     const noticeEl = document.getElementById('parent-komens-noticeboard-list');
     const absenceEl = document.getElementById('parent-absence-summary');
     const badgeEl = document.getElementById('nav-komens-badge');
+    const sortDirBtn = document.getElementById('btn-komens-sort-dir');
 
     if (!this.isParentMode()) {
       if (badgeEl) badgeEl.hidden = true;
@@ -1252,17 +1314,67 @@ class SkolniPartakApp {
     const noticeboard = Array.isArray(komens.noticeboard) ? komens.noticeboard : [];
     const events = Array.isArray(this.schoolData?.events) ? this.schoolData.events : [];
 
-    const unreadCount = received.filter((m) => m.Read === false || (m.CanConfirm && !m.Confirmed)).length;
+    const totalCount = received.length;
+    const unreadOnlyCount = received.filter((m) => m.Read === false).length;
+    const toConfirmCount = received.filter((m) => Boolean(m.CanConfirm && !m.Confirmed)).length;
+    const confirmedCount = received.filter((m) => Boolean(m.Confirmed)).length;
+
+    const badgeTotal = received.filter((m) => m.Read === false || (m.CanConfirm && !m.Confirmed)).length;
     if (badgeEl) {
-      badgeEl.textContent = String(unreadCount);
-      badgeEl.hidden = unreadCount === 0;
+      badgeEl.textContent = String(badgeTotal);
+      badgeEl.hidden = badgeTotal === 0;
+    }
+
+    // Update filter tab labels with live counts & active states
+    const tabAll = document.getElementById('komens-tab-all');
+    const tabUnread = document.getElementById('komens-tab-unread');
+    const tabToConfirm = document.getElementById('komens-tab-to-confirm');
+    const tabConfirmed = document.getElementById('komens-tab-confirmed');
+
+    if (tabAll) tabAll.textContent = `Vše (${totalCount})`;
+    if (tabUnread) tabUnread.textContent = `Nepřečtené (${unreadOnlyCount})`;
+    if (tabToConfirm) tabToConfirm.textContent = `K potvrzení (${toConfirmCount})`;
+    if (tabConfirmed) tabConfirmed.textContent = `Potvrzené (${confirmedCount})`;
+
+    document.querySelectorAll('[data-komens-filter]').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-komens-filter') === this.komensFilter);
+    });
+
+    if (sortDirBtn) {
+      sortDirBtn.innerHTML =
+        this.komensSortOrder === 'desc'
+          ? '⬇️ Nejnovější nahoře'
+          : '⬆️ Nejstarší nahoře';
     }
 
     if (receivedEl) {
-      if (received.length === 0) {
-        receivedEl.innerHTML = `<p class="empty-state-msg">Žádné přijaté zprávy v modulu Komens.</p>`;
+      // 1. Filter messages
+      let filteredMsgs = received.slice();
+      if (this.komensFilter === 'unread') {
+        filteredMsgs = filteredMsgs.filter((m) => m.Read === false);
+      } else if (this.komensFilter === 'to_confirm') {
+        filteredMsgs = filteredMsgs.filter((m) => Boolean(m.CanConfirm && !m.Confirmed));
+      } else if (this.komensFilter === 'confirmed') {
+        filteredMsgs = filteredMsgs.filter((m) => Boolean(m.Confirmed));
+      }
+
+      // 2. Sort messages by SentDate (default: newest at top = 'desc')
+      filteredMsgs.sort((a, b) => {
+        const timeA = a.SentDate || a.Date ? new Date(a.SentDate || a.Date).getTime() : 0;
+        const timeB = b.SentDate || b.Date ? new Date(b.SentDate || b.Date).getTime() : 0;
+        return this.komensSortOrder === 'asc' ? timeA - timeB : timeB - timeA;
+      });
+
+      if (filteredMsgs.length === 0) {
+        const emptyLabelMap = {
+          all: 'Žádné přijaté zprávy v modulu Komens.',
+          unread: 'Žádné nepřečtené zprávy – vše máte přečteno! ✨',
+          to_confirm: 'Žádné zprávy nevyžadují potvrzení! ✅',
+          confirmed: 'Zatím žádné potvrzené zprávy.'
+        };
+        receivedEl.innerHTML = `<p class="empty-state-msg">${window.escapeHtml(emptyLabelMap[this.komensFilter] || emptyLabelMap.all)}</p>`;
       } else {
-        receivedEl.innerHTML = received.map((msg) => {
+        receivedEl.innerHTML = filteredMsgs.map((msg) => {
           const msgId = msg.Id || msg.id || '';
           const senderName = msg.Sender?.Name || msg.SenderName || 'Škola / Učitel';
           const sentDate = msg.SentDate ? new Date(msg.SentDate).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
@@ -2003,6 +2115,15 @@ class SkolniPartakApp {
       });
     }
 
+    // Subject filter selector in Marks view
+    const marksSubjSelect = document.getElementById('marks-subject-select');
+    if (marksSubjSelect) {
+      marksSubjSelect.addEventListener('change', () => {
+        this.marksSubjectFilter = marksSubjSelect.value || 'all';
+        this.renderMarksSection();
+      });
+    }
+
     // Grade rounding threshold selector
     const thresholdSelect = document.getElementById('marks-threshold-select');
     if (thresholdSelect) {
@@ -2010,6 +2131,23 @@ class SkolniPartakApp {
         this.gradeThresholdOffset = parseFloat(thresholdSelect.value) || 0.5;
         this.renderMarksSection();
         this.renderDashboard();
+      });
+    }
+
+    // Komens filter tabs ("all", "unread", "to_confirm", "confirmed")
+    document.querySelectorAll('[data-komens-filter]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.komensFilter = btn.getAttribute('data-komens-filter') || 'all';
+        this.renderParentKomensSection();
+      });
+    });
+
+    // Komens sort direction toggle ("desc" vs "asc")
+    const komensSortBtn = document.getElementById('btn-komens-sort-dir');
+    if (komensSortBtn) {
+      komensSortBtn.addEventListener('click', () => {
+        this.komensSortOrder = this.komensSortOrder === 'desc' ? 'asc' : 'desc';
+        this.renderParentKomensSection();
       });
     }
 
